@@ -180,7 +180,7 @@ mod tests {
                 .unwrap();
 
             tracing::info_span!("outer", "k" = "kkk").in_scope(|| {
-                set_qid::<'_, _, Qid>(Span, qid);
+                set_qid(Span, qid);
                 let qid: Qid = get_qid(Span).unwrap();
                 assert_eq!(qid.get(), qid_u64);
             });

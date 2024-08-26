@@ -74,14 +74,10 @@ let server = HttpServer::new(move || {
 let qid = Qid::from(12345);
 
 // for tracing span
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-tracing_subscriber::registry()
-    .with(tracing_subscriber::fmt::layer())
-    .try_init()
-    .unwrap();
+use taoslog::utils::Span;
 
 tracing::info_span!("outer", "k" = "kkk").in_scope(|| {
-    set_qid::<'_, _, Qid>(Span, qid);
+    set_qid(Span, qid);
     let qid: Qid = get_qid(Span).unwrap();
 });
 
