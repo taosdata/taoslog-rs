@@ -70,8 +70,6 @@ let server = HttpServer::new(move || {
 
 ### Utils
 
-1. QID Getter
-
 ```rust
 let qid = Qid::from(12345);
 
