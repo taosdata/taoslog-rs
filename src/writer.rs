@@ -139,7 +139,7 @@ impl<'a> RollingFileAppenderBuilder<'a> {
                 )
             };
             let file_path = self.log_dir.join(&filename);
-            match create_file(&filename)? {
+            match create_file(&file_path)? {
                 Some(file) => break (file_path, file),
                 None => max_seq_id += 1,
             }
@@ -546,15 +546,6 @@ fn create_file(name: impl AsRef<Path>) -> Result<Option<File>> {
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(None),
         e @ Err(_) => Ok(Some(e.context(OpenLogFileSnafu { path })?)),
     }
-}
-
-fn open_file(name: impl AsRef<Path>) -> Result<File> {
-    let path = name.as_ref();
-    fs::OpenOptions::new()
-        .append(true)
-        .create(true)
-        .open(path)
-        .context(OpenLogFileSnafu { path })
 }
 
 pub(crate) fn compress(path: impl AsRef<Path>) -> Result<()> {

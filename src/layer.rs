@@ -56,7 +56,7 @@ where
             None => Q::init(),
         };
         let mut extensions = span.extensions_mut();
-        extensions.insert(qid);
+        extensions.replace(qid);
 
         if extensions.get_mut::<RecordFields>().is_none() {
             let mut fields = Vec::new();
@@ -64,7 +64,7 @@ where
             attrs
                 .values()
                 .record(&mut RecordVisit(&mut fields, &mut message));
-            extensions.insert(RecordFields(fields, message));
+            extensions.replace(RecordFields(fields, message));
         }
     }
 
@@ -86,7 +86,7 @@ where
                 let mut fields = Vec::new();
                 let mut message = None;
                 values.record(&mut RecordVisit(&mut fields, &mut message));
-                extensions.insert(RecordFields(fields, message));
+                extensions.replace(RecordFields(fields, message));
             }
         }
     }
