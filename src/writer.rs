@@ -263,6 +263,7 @@ impl RollingFileAppender {
                         state.max_seq_id
                     )
                 };
+                let filename = self.config.log_dir.join(filename);
                 match create_file(&filename)? {
                     Some(file) => break (filename, file),
                     None => state.max_seq_id += 1,
@@ -302,6 +303,7 @@ impl RollingFileAppender {
                     time_format(now),
                     state.max_seq_id
                 );
+                let filename = self.config.log_dir.join(filename);
                 match create_file(&filename)? {
                     Some(file) => break (filename, file),
                     None => state.max_seq_id += 1,
@@ -320,7 +322,37 @@ impl RollingFileAppender {
 
         // 当前文件被误删除的情况
         if !state.file_path.is_file() {
-            return Ok(Some(open_file(&state.file_path)?));
+            let mut max_seq_id = max_seq_id(
+                &self.config.component_name,
+                self.config.instance_id,
+                &self.config.log_dir,
+            )?;
+            loop {
+                let filename = if state.max_seq_id == 0 {
+                    format!(
+                        "{}_{}_{}.log",
+                        self.config.component_name,
+                        self.config.instance_id,
+                        time_format(now)
+                    )
+                } else {
+                    format!(
+                        "{}_{}_{}.log.{}",
+                        self.config.component_name,
+                        self.config.instance_id,
+                        time_format(now),
+                        max_seq_id
+                    )
+                };
+                let filename = self.config.log_dir.join(filename);
+                match create_file(filename)? {
+                    Some(file) => {
+                        state.max_seq_id = max_seq_id;
+                        return Ok(Some(file));
+                    }
+                    None => max_seq_id += 1,
+                }
+            }
         }
 
         Ok(None)
