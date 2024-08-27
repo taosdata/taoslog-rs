@@ -252,7 +252,7 @@ mod tests {
     use crate::{
         fake::Qid,
         layer::TaosLayer,
-        utils::{get_qid, set_qid, Span},
+        utils::{QidMetadataGetter, QidMetadataSetter, Span},
         QidManager,
     };
 
@@ -275,12 +275,12 @@ mod tests {
 
         tracing::info_span!("outer", "k" = "kkk").in_scope(|| {
             // test qid init
-            let qid: Qid = get_qid(Span).unwrap();
+            let qid: Qid = Span.get_qid().unwrap();
             assert_eq!(qid.get(), 9223372036854775807);
-            set_qid(Span, Qid::from(999));
+            Span.set_qid(Qid::from(999));
             tracing::info_span!("inner").in_scope(|| {
                 // test qid inherit
-                let qid: Qid = get_qid(Span).unwrap();
+                let qid: Qid = Span.get_qid().unwrap();
                 assert_eq!(qid.get(), 999);
             })
         });

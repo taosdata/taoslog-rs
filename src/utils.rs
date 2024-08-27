@@ -6,134 +6,111 @@ use crate::QidManager;
 
 const QID_HEADER_KEY: &str = "x-qid";
 
-pub fn set_qid<'a, M, Q>(meta: M, qid: Q)
-where
-    M: Into<QidMetadataMut<'a>>,
-    Q: QidManager,
-{
-    let meta = meta.into();
-    meta.set_qid(qid);
-}
-
-pub fn get_qid<'a, M, Q>(meta: M) -> Option<Q>
-where
-    M: Into<QidMetadataRef<'a>>,
-    Q: QidManager,
-{
-    let meta = meta.into();
-    meta.get_qid()
-}
-
 pub struct Span;
 
-pub enum QidMetadataMut<'a> {
-    Span,
-    HttpHeader(&'a mut HeaderMap),
-    RecordBatchSchema(&'a mut Schema),
+mod private {
+    pub trait Sealed {}
 }
 
-impl<'a> From<Span> for QidMetadataMut<'a> {
-    fn from(_: Span) -> Self {
-        Self::Span
-    }
+pub trait QidMetadataGetter: private::Sealed {
+    fn get_qid<Q>(&self) -> Option<Q>
+    where
+        Q: QidManager;
 }
 
-impl<'a> From<&'a mut Schema> for QidMetadataMut<'a> {
-    fn from(schema: &'a mut Schema) -> Self {
-        Self::RecordBatchSchema(schema)
-    }
+pub trait QidMetadataSetter: private::Sealed {
+    fn set_qid<Q>(&mut self, qid: Q)
+    where
+        Q: QidManager;
 }
 
-impl<'a> From<&'a mut HeaderMap> for QidMetadataMut<'a> {
-    fn from(header: &'a mut HeaderMap) -> Self {
-        Self::HttpHeader(header)
-    }
-}
-
-impl<'a> QidMetadataMut<'a> {
-    fn set_qid<Q>(self, qid: Q)
+impl QidMetadataGetter for HeaderMap {
+    fn get_qid<Q>(&self) -> Option<Q>
     where
         Q: QidManager,
     {
-        match self {
-            QidMetadataMut::Span => tracing::dispatcher::get_default(|dispatch| {
-                let registry = dispatch
-                    .downcast_ref::<Registry>()
-                    .expect("no global default dispatcher found");
-                if let Some((id, _meta)) = dispatch.current_span().into_inner() {
-                    let span = registry.span(&id).unwrap();
-                    let mut ext = span.extensions_mut();
-                    ext.replace(qid.clone());
-                }
-            }),
-            QidMetadataMut::HttpHeader(headers) => {
-                headers.insert(
-                    HeaderName::from_static(QID_HEADER_KEY),
-                    HeaderValue::from_str(&format!("{:#018x}", qid.get())).unwrap(),
-                );
-            }
-            QidMetadataMut::RecordBatchSchema(schema) => {
-                schema
-                    .metadata
-                    .insert(QID_HEADER_KEY.to_owned(), format!("{:#018x}", qid.get()));
-            }
-        }
+        self.get(QID_HEADER_KEY)
+            .and_then(|x| x.to_str().ok())
+            .and_then(|x| x.get(2..))
+            .and_then(|x| u64::from_str_radix(x, 16).ok())
+            .map(|x| Q::from(x))
     }
 }
 
-pub enum QidMetadataRef<'a> {
-    Span,
-    HttpHeader(&'a HeaderMap),
-    RecordBatchSchema(&'a Schema),
-}
+impl private::Sealed for HeaderMap {}
 
-impl<'a> From<Span> for QidMetadataRef<'a> {
-    fn from(_: Span) -> Self {
-        Self::Span
-    }
-}
-
-impl<'a> From<&'a Schema> for QidMetadataRef<'a> {
-    fn from(schema: &'a Schema) -> Self {
-        Self::RecordBatchSchema(schema)
-    }
-}
-
-impl<'a> From<&'a HeaderMap> for QidMetadataRef<'a> {
-    fn from(header: &'a HeaderMap) -> Self {
-        Self::HttpHeader(header)
-    }
-}
-
-impl<'a> QidMetadataRef<'a> {
-    pub fn get_qid<Q>(self) -> Option<Q>
+impl QidMetadataGetter for Schema {
+    fn get_qid<Q>(&self) -> Option<Q>
     where
         Q: QidManager,
     {
-        match self {
-            QidMetadataRef::Span => tracing::dispatcher::get_default(|dispatch| {
-                let registry = dispatch
-                    .downcast_ref::<Registry>()
-                    .expect("no global default dispatcher found");
-                dispatch.current_span().into_inner().and_then(|(id, _)| {
-                    let span = registry.span(&id).unwrap();
-                    let ext = span.extensions();
-                    ext.get::<Q>().cloned()
-                })
-            }),
-            QidMetadataRef::HttpHeader(headers) => headers
-                .get(QID_HEADER_KEY)
-                .and_then(|x| x.to_str().ok())
-                .and_then(|x| x.get(2..))
-                .and_then(|x| u64::from_str_radix(x, 16).ok())
-                .map(|x| Q::from(x)),
-            QidMetadataRef::RecordBatchSchema(schema) => schema
-                .metadata
-                .get(QID_HEADER_KEY)
-                .and_then(|x| x.get(2..))
-                .and_then(|x| u64::from_str_radix(x, 16).ok())
-                .map(|x| Q::from(x)),
-        }
+        self.metadata
+            .get(QID_HEADER_KEY)
+            .and_then(|x| x.get(2..))
+            .and_then(|x| u64::from_str_radix(x, 16).ok())
+            .map(|x| Q::from(x))
+    }
+}
+
+impl private::Sealed for Schema {}
+
+impl QidMetadataGetter for Span {
+    fn get_qid<Q>(&self) -> Option<Q>
+    where
+        Q: QidManager,
+    {
+        tracing::dispatcher::get_default(|dispatch| {
+            let registry = dispatch
+                .downcast_ref::<Registry>()
+                .expect("no global default dispatcher found");
+            dispatch.current_span().into_inner().and_then(|(id, _)| {
+                let span = registry.span(&id).unwrap();
+                let ext = span.extensions();
+                ext.get::<Q>().cloned()
+            })
+        })
+    }
+}
+
+impl private::Sealed for Span {}
+
+impl QidMetadataSetter for HeaderMap {
+    fn set_qid<Q>(&mut self, qid: Q)
+    where
+        Q: QidManager,
+    {
+        self.insert(
+            HeaderName::from_static(QID_HEADER_KEY),
+            HeaderValue::from_str(&format!("{:#018x}", qid.get())).unwrap(),
+        );
+    }
+}
+
+impl QidMetadataSetter for Schema {
+    fn set_qid<Q>(&mut self, qid: Q)
+    where
+        Q: QidManager,
+    {
+        self.metadata
+            .insert(QID_HEADER_KEY.to_owned(), format!("{:#018x}", qid.get()));
+    }
+}
+
+impl QidMetadataSetter for Span {
+    fn set_qid<Q>(&mut self, qid: Q)
+    where
+        Q: QidManager,
+    {
+        tracing::dispatcher::get_default(|dispatch| {
+            let registry = dispatch
+                .downcast_ref::<Registry>()
+                .expect("no global default dispatcher found");
+            if let Some((id, _meta)) = dispatch.current_span().into_inner() {
+                let span = registry.span(&id).unwrap();
+                let mut ext = span.extensions_mut();
+                ext.replace(qid.clone());
+            }
+        })
     }
 }
 
@@ -151,24 +128,24 @@ mod tests {
 
         {
             let mut header = HeaderMap::new();
-            set_qid(&mut header, qid.clone());
+            header.set_qid(qid.clone());
 
             assert_eq!(header.get(QID_HEADER_KEY).unwrap(), "0x7fffffffffffffff");
 
-            let qid: Qid = get_qid(&header).unwrap();
+            let qid: Qid = header.get_qid().unwrap();
             assert_eq!(qid.get(), qid_u64);
         }
 
         {
             let mut schema = Schema::empty();
-            set_qid(&mut schema, qid.clone());
+            schema.set_qid(qid.clone());
 
             assert_eq!(
                 schema.metadata.get(QID_HEADER_KEY).unwrap(),
                 "0x7fffffffffffffff"
             );
 
-            let qid: Qid = get_qid(&schema).unwrap();
+            let qid: Qid = schema.get_qid().unwrap();
             assert_eq!(qid.get(), qid_u64);
         }
 
@@ -180,8 +157,8 @@ mod tests {
                 .unwrap();
 
             tracing::info_span!("outer", "k" = "kkk").in_scope(|| {
-                set_qid(Span, qid);
-                let qid: Qid = get_qid(Span).unwrap();
+                Span.set_qid(qid);
+                let qid: Qid = Span.get_qid().unwrap();
                 assert_eq!(qid.get(), qid_u64);
             });
         }

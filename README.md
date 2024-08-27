@@ -77,17 +77,17 @@ let qid = Qid::from(12345);
 use taoslog::utils::Span;
 
 tracing::info_span!("outer", "k" = "kkk").in_scope(|| {
-    set_qid(Span, qid);
-    let qid: Qid = get_qid(Span).unwrap();
+    Span.set_qid(qid);
+    let qid: Qid = Span.get_qid().unwrap();
 });
 
 // for http header
-let mut header = HeaderMap::new();
-set_qid(&mut header, qid.clone());
-let qid: Qid = get_qid(&header).unwrap();
+let mut headers = HeaderMap::new();
+headers.set_qid(qid.clone());
+let qid: Qid = headers.get_qid().unwrap();
 
 // for RecordBatch Schema
 let mut schema = Schema::empty();
-set_qid(&mut schema, qid.clone());
-let qid: Qid = get_qid(&schema).unwrap();
+schema.set_qid(qid.clone());
+let qid: Qid = schema.get_qid().unwrap();
 ```
