@@ -68,7 +68,7 @@ struct State {
 struct Config {
     log_dir: PathBuf,
     component_name: String,
-    instance_id: usize,
+    instance_id: u8,
     rotation: Rotation,
     reserced_disk_size: u64,
     compress: bool,
@@ -78,7 +78,7 @@ struct Config {
 pub struct RollingFileAppenderBuilder<'a> {
     log_dir: PathBuf,
     component_name: String,
-    instance_id: usize,
+    instance_id: u8,
     rotation_count: usize,
     rotation_size: &'a str,
     compress: bool,
@@ -224,7 +224,7 @@ impl RollingFileAppender {
     pub fn builder(
         log_dir: impl AsRef<Path>,
         component: &str,
-        instance_id: usize,
+        instance_id: u8,
     ) -> RollingFileAppenderBuilder {
         RollingFileAppenderBuilder {
             log_dir: log_dir.as_ref().to_path_buf(),
@@ -359,11 +359,7 @@ impl RollingFileAppender {
     }
 }
 
-fn max_seq_id(
-    component_name: &str,
-    instance_id: usize,
-    log_dir: impl AsRef<Path>,
-) -> Result<usize> {
+fn max_seq_id(component_name: &str, instance_id: u8, log_dir: impl AsRef<Path>) -> Result<usize> {
     let log_dir = log_dir.as_ref();
     Ok(fs::read_dir(log_dir)
         .context(ReadDirSnafu { path: log_dir })?
@@ -573,7 +569,7 @@ pub(crate) fn compress(path: impl AsRef<Path>) -> Result<()> {
 
 fn parse_filename(
     component: &str,
-    instance_id: usize,
+    instance_id: u8,
     name: &str,
 ) -> Option<(DateTime<Local>, usize)> {
     static LOG_FILE_NAME_RE: OnceLock<Regex> = OnceLock::new();

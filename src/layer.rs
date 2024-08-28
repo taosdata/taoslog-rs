@@ -118,7 +118,7 @@ where
             // Part 3: level
             let metadata = event.metadata();
             fmt_level(buf, metadata.level());
-            // Part 4 and Part 5:  span and TID or DTID
+            // Part 4 and Part 5:  span and QID
             let Some(scope) = ctx.event_scope(event) else {
                 return
             };
