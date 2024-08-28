@@ -277,7 +277,7 @@ mod tests {
             // test qid init
             let qid: Qid = Span.get_qid().unwrap();
             assert_eq!(qid.get(), 9223372036854775807);
-            Span.set_qid(Qid::from(999));
+            Span.set_qid(&Qid::from(999));
             tracing::info_span!("inner").in_scope(|| {
                 // test qid inherit
                 let qid: Qid = Span.get_qid().unwrap();

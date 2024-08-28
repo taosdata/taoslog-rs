@@ -17,7 +17,7 @@ pub trait QidMetadataGetter: private::Sealed {
 }
 
 pub trait QidMetadataSetter: private::Sealed {
-    fn set_qid<Q>(&mut self, qid: Q)
+    fn set_qid<Q>(&mut self, qid: &Q)
     where
         Q: QidManager;
 }
@@ -36,7 +36,7 @@ impl QidMetadataGetter for actix_web::http::header::HeaderMap {
 }
 
 impl QidMetadataSetter for actix_web::http::header::HeaderMap {
-    fn set_qid<Q>(&mut self, qid: Q)
+    fn set_qid<Q>(&mut self, qid: &Q)
     where
         Q: QidManager,
     {
@@ -64,7 +64,7 @@ impl QidMetadataGetter for http::header::HeaderMap {
 }
 
 impl QidMetadataSetter for http::header::HeaderMap {
-    fn set_qid<Q>(&mut self, qid: Q)
+    fn set_qid<Q>(&mut self, qid: &Q)
     where
         Q: QidManager,
     {
@@ -91,7 +91,7 @@ impl QidMetadataGetter for arrow_schema::Schema {
 }
 
 impl QidMetadataSetter for arrow_schema::Schema {
-    fn set_qid<Q>(&mut self, qid: Q)
+    fn set_qid<Q>(&mut self, qid: &Q)
     where
         Q: QidManager,
     {
@@ -121,7 +121,7 @@ impl QidMetadataGetter for Span {
 }
 
 impl QidMetadataSetter for Span {
-    fn set_qid<Q>(&mut self, qid: Q)
+    fn set_qid<Q>(&mut self, qid: &Q)
     where
         Q: QidManager,
     {
@@ -154,7 +154,7 @@ mod tests {
 
         {
             let mut header = actix_web::http::header::HeaderMap::new();
-            header.set_qid(qid.clone());
+            header.set_qid(&qid);
 
             assert_eq!(header.get(QID_HEADER_KEY).unwrap(), "0x7fffffffffffffff");
 
@@ -164,7 +164,7 @@ mod tests {
 
         {
             let mut header = http::header::HeaderMap::new();
-            header.set_qid(qid.clone());
+            header.set_qid(&qid);
 
             assert_eq!(header.get(QID_HEADER_KEY).unwrap(), "0x7fffffffffffffff");
 
@@ -174,7 +174,7 @@ mod tests {
 
         {
             let mut schema = arrow_schema::Schema::empty();
-            schema.set_qid(qid.clone());
+            schema.set_qid(&qid);
 
             assert_eq!(
                 schema.metadata.get(QID_HEADER_KEY).unwrap(),
@@ -193,7 +193,7 @@ mod tests {
                 .unwrap();
 
             tracing::info_span!("outer", "k" = "kkk").in_scope(|| {
-                Span.set_qid(qid);
+                Span.set_qid(&qid);
                 let qid: Qid = Span.get_qid().unwrap();
                 assert_eq!(qid.get(), qid_u64);
             });
