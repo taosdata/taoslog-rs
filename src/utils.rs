@@ -50,7 +50,7 @@ impl QidMetadataSetter for actix_web::http::header::HeaderMap {
 
 impl private::Sealed for actix_web::http::header::HeaderMap {}
 
-impl QidMetadataGetter for reqwest::header::HeaderMap {
+impl QidMetadataGetter for http::header::HeaderMap {
     fn get_qid<Q>(&self) -> Option<Q>
     where
         Q: QidManager,
@@ -63,19 +63,19 @@ impl QidMetadataGetter for reqwest::header::HeaderMap {
     }
 }
 
-impl QidMetadataSetter for reqwest::header::HeaderMap {
+impl QidMetadataSetter for http::header::HeaderMap {
     fn set_qid<Q>(&mut self, qid: Q)
     where
         Q: QidManager,
     {
         self.insert(
             QID_HEADER_KEY,
-            reqwest::header::HeaderValue::from_str(&format!("{:#018x}", qid.get())).unwrap(),
+            http::header::HeaderValue::from_str(&format!("{:#018x}", qid.get())).unwrap(),
         );
     }
 }
 
-impl private::Sealed for reqwest::header::HeaderMap {}
+impl private::Sealed for http::header::HeaderMap {}
 
 impl QidMetadataGetter for arrow_schema::Schema {
     fn get_qid<Q>(&self) -> Option<Q>
@@ -163,7 +163,7 @@ mod tests {
         }
 
         {
-            let mut header = reqwest::header::HeaderMap::new();
+            let mut header = http::header::HeaderMap::new();
             header.set_qid(qid.clone());
 
             assert_eq!(header.get(QID_HEADER_KEY).unwrap(), "0x7fffffffffffffff");
