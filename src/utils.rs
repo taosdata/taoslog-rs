@@ -1,5 +1,3 @@
-use actix_web::http::header::{HeaderMap, HeaderName, HeaderValue};
-use arrow_schema::Schema;
 use tracing_subscriber::{registry::LookupSpan, Registry};
 
 use crate::QidManager;
@@ -24,7 +22,7 @@ pub trait QidMetadataSetter: private::Sealed {
         Q: QidManager;
 }
 
-impl QidMetadataGetter for HeaderMap {
+impl QidMetadataGetter for actix_web::http::header::HeaderMap {
     fn get_qid<Q>(&self) -> Option<Q>
     where
         Q: QidManager,
@@ -37,9 +35,49 @@ impl QidMetadataGetter for HeaderMap {
     }
 }
 
-impl private::Sealed for HeaderMap {}
+impl QidMetadataSetter for actix_web::http::header::HeaderMap {
+    fn set_qid<Q>(&mut self, qid: Q)
+    where
+        Q: QidManager,
+    {
+        self.insert(
+            actix_web::http::header::HeaderName::from_static(QID_HEADER_KEY),
+            actix_web::http::header::HeaderValue::from_str(&format!("{:#018x}", qid.get()))
+                .unwrap(),
+        );
+    }
+}
 
-impl QidMetadataGetter for Schema {
+impl private::Sealed for actix_web::http::header::HeaderMap {}
+
+impl QidMetadataGetter for reqwest::header::HeaderMap {
+    fn get_qid<Q>(&self) -> Option<Q>
+    where
+        Q: QidManager,
+    {
+        self.get(QID_HEADER_KEY)
+            .and_then(|x| x.to_str().ok())
+            .and_then(|x| x.get(2..))
+            .and_then(|x| u64::from_str_radix(x, 16).ok())
+            .map(|x| Q::from(x))
+    }
+}
+
+impl QidMetadataSetter for reqwest::header::HeaderMap {
+    fn set_qid<Q>(&mut self, qid: Q)
+    where
+        Q: QidManager,
+    {
+        self.insert(
+            QID_HEADER_KEY,
+            reqwest::header::HeaderValue::from_str(&format!("{:#018x}", qid.get())).unwrap(),
+        );
+    }
+}
+
+impl private::Sealed for reqwest::header::HeaderMap {}
+
+impl QidMetadataGetter for arrow_schema::Schema {
     fn get_qid<Q>(&self) -> Option<Q>
     where
         Q: QidManager,
@@ -52,7 +90,17 @@ impl QidMetadataGetter for Schema {
     }
 }
 
-impl private::Sealed for Schema {}
+impl QidMetadataSetter for arrow_schema::Schema {
+    fn set_qid<Q>(&mut self, qid: Q)
+    where
+        Q: QidManager,
+    {
+        self.metadata
+            .insert(QID_HEADER_KEY.to_owned(), format!("{:#018x}", qid.get()));
+    }
+}
+
+impl private::Sealed for arrow_schema::Schema {}
 
 impl QidMetadataGetter for Span {
     fn get_qid<Q>(&self) -> Option<Q>
@@ -69,30 +117,6 @@ impl QidMetadataGetter for Span {
                 ext.get::<Q>().cloned()
             })
         })
-    }
-}
-
-impl private::Sealed for Span {}
-
-impl QidMetadataSetter for HeaderMap {
-    fn set_qid<Q>(&mut self, qid: Q)
-    where
-        Q: QidManager,
-    {
-        self.insert(
-            HeaderName::from_static(QID_HEADER_KEY),
-            HeaderValue::from_str(&format!("{:#018x}", qid.get())).unwrap(),
-        );
-    }
-}
-
-impl QidMetadataSetter for Schema {
-    fn set_qid<Q>(&mut self, qid: Q)
-    where
-        Q: QidManager,
-    {
-        self.metadata
-            .insert(QID_HEADER_KEY.to_owned(), format!("{:#018x}", qid.get()));
     }
 }
 
@@ -114,6 +138,8 @@ impl QidMetadataSetter for Span {
     }
 }
 
+impl private::Sealed for Span {}
+
 #[cfg(test)]
 mod tests {
 
@@ -127,7 +153,7 @@ mod tests {
         let qid = Qid::from(qid_u64);
 
         {
-            let mut header = HeaderMap::new();
+            let mut header = actix_web::http::header::HeaderMap::new();
             header.set_qid(qid.clone());
 
             assert_eq!(header.get(QID_HEADER_KEY).unwrap(), "0x7fffffffffffffff");
@@ -137,7 +163,17 @@ mod tests {
         }
 
         {
-            let mut schema = Schema::empty();
+            let mut header = reqwest::header::HeaderMap::new();
+            header.set_qid(qid.clone());
+
+            assert_eq!(header.get(QID_HEADER_KEY).unwrap(), "0x7fffffffffffffff");
+
+            let qid: Qid = header.get_qid().unwrap();
+            assert_eq!(qid.get(), qid_u64);
+        }
+
+        {
+            let mut schema = arrow_schema::Schema::empty();
             schema.set_qid(qid.clone());
 
             assert_eq!(
