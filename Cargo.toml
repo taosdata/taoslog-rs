@@ -4,13 +4,14 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-actix-web = { version = "4.9.0", default-features = false }
-tracing-actix-web = { version = "0.7.11" }
-tracing = { version = "0.1.40", default-features = false }
-tracing-subscriber = { version = "0.3.18", default-features = false, features = [
+actix-web = { version = "*", default-features = false }
+tracing-actix-web = { version = "*" }
+tracing = { version = "*", default-features = false }
+tracing-subscriber = { version = "*", default-features = false, features = [
     "fmt",
     "std",
 ] }
+reqwest = { version = "*", default-features = false }
 chrono = { version = "0.4.38", default-features = false, features = ["clock"] }
 parking_lot = "0.12.3"
 snafu = "0.8.4"
@@ -20,7 +21,6 @@ regex = "1.10.6"
 sysinfo = { version = "0.31.3", default-features = false, features = ["disk"] }
 flume = "0.11.0"
 arrow-schema = "52.2.0"
-reqwest = { version = "0.12.7", default-features = false }
 
 [dev-dependencies]
 crossbeam = "0.8.4"
