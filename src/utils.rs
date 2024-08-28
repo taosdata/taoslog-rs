@@ -140,8 +140,48 @@ impl QidMetadataSetter for Span {
 
 impl private::Sealed for Span {}
 
+impl QidMetadataGetter for tracing::Span {
+    fn get_qid<Q>(&self) -> Option<Q>
+    where
+        Q: QidManager,
+    {
+        tracing::dispatcher::get_default(|dispatch| {
+            let registry = dispatch
+                .downcast_ref::<Registry>()
+                .expect("no global default dispatcher found");
+            self.id().and_then(|id| {
+                let span = registry.span(&id).unwrap();
+                let ext = span.extensions();
+                ext.get::<Q>().cloned()
+            })
+        })
+    }
+}
+
+impl QidMetadataSetter for tracing::Span {
+    fn set_qid<Q>(&mut self, qid: &Q)
+    where
+        Q: QidManager,
+    {
+        tracing::dispatcher::get_default(|dispatch| {
+            let registry = dispatch
+                .downcast_ref::<Registry>()
+                .expect("no global default dispatcher found");
+            if let Some(id) = self.id() {
+                let span = registry.span(&id).unwrap();
+                let mut ext = span.extensions_mut();
+                ext.replace(qid.clone());
+            }
+        })
+    }
+}
+
+impl private::Sealed for tracing::Span {}
+
 #[cfg(test)]
 mod tests {
+
+    use tracing::info_span;
 
     use crate::fake::Qid;
 
@@ -197,6 +237,13 @@ mod tests {
                 let qid: Qid = Span.get_qid().unwrap();
                 assert_eq!(qid.get(), qid_u64);
             });
+        }
+
+        {
+            let mut span = info_span!("example");
+            span.set_qid(&qid);
+            let qid: Qid = span.get_qid().unwrap();
+            assert_eq!(qid.get(), qid_u64);
         }
     }
 }
