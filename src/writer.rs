@@ -73,6 +73,7 @@ struct Config {
     reserced_disk_size: u64,
     compress: bool,
     rotate_count: usize,
+    stop_logging_threshold: f64,
 }
 
 pub struct RollingFileAppenderBuilder<'a> {
@@ -83,6 +84,7 @@ pub struct RollingFileAppenderBuilder<'a> {
     rotation_size: &'a str,
     compress: bool,
     reserved_disk_size: &'a str,
+    stop_logging_threshold: usize,
 }
 
 impl<'a> RollingFileAppenderBuilder<'a> {
@@ -107,6 +109,13 @@ impl<'a> RollingFileAppenderBuilder<'a> {
     pub fn reserved_disk_size(self, reserved_disk_size: &'a str) -> Self {
         Self {
             reserved_disk_size,
+            ..self
+        }
+    }
+
+    pub fn stop_logging_threadhold(self, stop_logging_threshold: usize) -> Self {
+        Self {
+            stop_logging_threshold,
             ..self
         }
     }
@@ -202,6 +211,7 @@ impl<'a> RollingFileAppenderBuilder<'a> {
             compress: self.compress,
             component_name: self.component_name,
             rotate_count: self.rotation_count,
+            stop_logging_threshold: self.stop_logging_threshold as f64 / 100f64,
         };
 
         // 处理旧文件
@@ -248,6 +258,7 @@ impl RollingFileAppender {
             reserved_disk_size: "2GB",
             component_name: component.to_string(),
             instance_id,
+            stop_logging_threshold: 50,
         }
     }
 
@@ -485,8 +496,6 @@ impl<'a> std::io::Write for TaosLogWriter<'a> {
     }
 }
 
-const STOP_LOGGING_THREDHOLD: usize = 20;
-
 impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for RollingFileAppender {
     type Writer = TaosLogWriter<'a>;
 
@@ -502,7 +511,7 @@ impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for RollingFileAppender {
         let level = meta.level();
         let current_disk_space = self.disk_available_space.load(atomic::Ordering::SeqCst);
         if current_disk_space as f64 / self.config.reserced_disk_size as f64
-            <= STOP_LOGGING_THREDHOLD as f64 / 100f64
+            <= self.config.stop_logging_threshold
         {
             return TaosLogWriter::Null(std::io::empty());
         }

@@ -31,6 +31,7 @@ fn main() {
         .reserved_disk_size("1GB")
         .rotation_count(3)
         .rotation_size("1KB")
+        .stop_logging_threadhold(50)
         .build()
         .unwrap();
 
