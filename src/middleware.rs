@@ -1,12 +1,19 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, marker::PhantomData};
 
 use tracing_actix_web::{root_span, RootSpanBuilder};
 
-pub struct TaosRootSpanBuilder;
+use crate::{
+    utils::{QidMetadataGetter, QidMetadataSetter},
+    QidManager,
+};
 
-impl RootSpanBuilder for TaosRootSpanBuilder {
+pub struct TaosRootSpanBuilder<Q>(PhantomData<Q>);
+
+impl<Q> RootSpanBuilder for TaosRootSpanBuilder<Q>
+where
+    Q: QidManager,
+{
     fn on_request_start(request: &actix_web::dev::ServiceRequest) -> tracing::Span {
-        let span = root_span!(level = tracing::Level::INFO, request);
         let connection_info = request.connection_info();
         let schema = connection_info.scheme();
         let flavor = http_flavor(request.version());
@@ -22,6 +29,12 @@ impl RootSpanBuilder for TaosRootSpanBuilder {
             .path_and_query()
             .map(|p| p.as_str())
             .unwrap_or("");
+
+        let mut span = root_span!(level = tracing::Level::INFO, request);
+        // get qid from upstream header
+        if let Some(qid) = request.headers().get_qid::<Q>() {
+            span.set_qid(&qid);
+        }
         span.in_scope(|| {
             tracing::info!("{client_ip} \"{method} {target} {schema}/{flavor}\" {user_agent}");
         });
