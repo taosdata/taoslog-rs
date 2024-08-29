@@ -12,7 +12,7 @@ use std::{
 
 use chrono::{
     format::{DelayedFormat, StrftimeItems},
-    DateTime, Local, NaiveDateTime, TimeDelta, TimeZone,
+    DateTime, Local, NaiveDateTime, NaiveTime, TimeDelta, TimeZone,
 };
 use flate2::write::GzEncoder;
 use parking_lot::{RwLock, RwLockReadGuard};
@@ -180,8 +180,12 @@ impl<'a> RollingFileAppenderBuilder<'a> {
 
         let (event_tx, event_rx) = flume::bounded(1);
         thread::spawn(move || {
-            while let Ok(HandleOldFileEvent(config, filename)) = event_rx.recv() {
-                handle_old_files(config, filename).ok();
+            while let Ok(HandleOldFileEvent {
+                config,
+                compress_file,
+            }) = event_rx.recv()
+            {
+                handle_old_files(config, compress_file).ok();
             }
         });
 
@@ -195,6 +199,14 @@ impl<'a> RollingFileAppenderBuilder<'a> {
             rotate_count: self.rotation_count,
         };
 
+        // 处理旧文件
+        event_tx
+            .send(HandleOldFileEvent {
+                config: config.clone(),
+                compress_file: None,
+            })
+            .ok();
+
         let this = RollingFileAppender {
             config,
             disk_available_space,
@@ -203,9 +215,6 @@ impl<'a> RollingFileAppenderBuilder<'a> {
             state: RwLock::new(state),
             writer: RwLock::new(file),
         };
-
-        // 处理旧文件
-        this.rotate()?;
 
         Ok(this)
     }
@@ -273,10 +282,10 @@ impl RollingFileAppender {
             state.next_date = self.config.rotation.next_timestamp(now);
             // 处理旧文件
             self.event_tx
-                .send(HandleOldFileEvent(
-                    self.config.clone(),
-                    state.file_path.clone(),
-                ))
+                .send(HandleOldFileEvent {
+                    config: self.config.clone(),
+                    compress_file: Some(state.file_path.clone()),
+                })
                 .ok();
             state.file_path = self.config.log_dir.join(filename);
             return Ok(Some(file));
@@ -311,10 +320,10 @@ impl RollingFileAppender {
             };
             // 处理旧文件
             self.event_tx
-                .send(HandleOldFileEvent(
-                    self.config.clone(),
-                    state.file_path.clone(),
-                ))
+                .send(HandleOldFileEvent {
+                    config: self.config.clone(),
+                    compress_file: Some(state.file_path.clone()),
+                })
                 .ok();
             state.file_path = self.config.log_dir.join(filename);
             return Ok(Some(file));
@@ -374,18 +383,23 @@ fn max_seq_id(component_name: &str, instance_id: u8, log_dir: impl AsRef<Path>) 
             let filename = entry.file_name().to_str()?.to_string();
             let res = parse_filename(component_name, instance_id, &filename)?;
 
-            Some(res.1)
+            (res.0 == Local::now().with_time(NaiveTime::MIN).unwrap()).then_some(res.1)
         })
         .max()
         .unwrap_or_default())
 }
 
-struct HandleOldFileEvent(Config, PathBuf);
+struct HandleOldFileEvent {
+    config: Config,
+    compress_file: Option<PathBuf>,
+}
 
-fn handle_old_files(config: Config, filename: PathBuf) -> Result<()> {
+fn handle_old_files(config: Config, compress_filename: Option<PathBuf>) -> Result<()> {
     // 压缩上一个文件
-    if config.compress && config.rotate_count != 1 {
-        compress(filename).ok();
+    if let Some(filename) = compress_filename {
+        if config.compress && config.rotate_count != 1 {
+            compress(filename).ok();
+        }
     }
 
     if config.rotate_count == 0 {
