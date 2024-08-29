@@ -13,46 +13,159 @@ use tracing_subscriber::{
 
 use crate::{writer::RollingFileAppender, QidManager};
 
-const GRAY_COLOR: usize = 90;
-const RED_COLOR: usize = 91;
-const GREEN_COLOR: usize = 92;
-const YELLOW_COLOR: usize = 93;
-const BLUE_COLOR: usize = 94;
-const PURPLE_COLOR: usize = 95;
-
 #[derive(Clone)]
 struct RecordFields(Vec<String>, Option<String>);
 
 pub struct TaosLayer<Q, S = Registry, M = RollingFileAppender> {
     make_writer: M,
+    #[cfg(feature = "ansi")]
     with_ansi: bool,
     _s: PhantomData<fn(S)>,
     _q: PhantomData<Q>,
 }
 
-impl<Q, S, M> TaosLayer<S, Q, M> {
+impl<Q, S, M> TaosLayer<Q, S, M> {
     pub fn new(make_writer: M) -> Self {
         Self {
             make_writer,
+            #[cfg(feature = "ansi")]
             with_ansi: false,
             _s: PhantomData,
             _q: PhantomData,
         }
     }
 
+    #[cfg(feature = "ansi")]
     pub fn with_ansi(self) -> Self {
         Self {
             with_ansi: true,
             ..self
         }
     }
+
+    fn fmt_timestamp(&self, buf: &mut String) {
+        let local: DateTime<Local> = Local::now();
+        let s = local.format("%m/%d %H:%M:%S.%6f ").to_string();
+        #[cfg(feature = "ansi")]
+        let s = if self.with_ansi {
+            nu_ansi_term::Color::DarkGray.paint(s).to_string()
+        } else {
+            s
+        };
+        buf.push_str(s.as_str())
+    }
+
+    fn fmt_thread_id(&self, buf: &mut String) {
+        let s = format!("{:0>8}", thread_id::get());
+        #[cfg(feature = "ansi")]
+        let s = if self.with_ansi {
+            nu_ansi_term::Color::DarkGray.paint(s).to_string()
+        } else {
+            s
+        };
+        buf.push_str(s.as_str())
+    }
+
+    fn fmt_level(&self, buf: &mut String, level: &tracing::Level) {
+        buf.push(' ');
+        let level_str = match *level {
+            tracing::Level::TRACE => "TRACE",
+            tracing::Level::DEBUG => "DEBUG",
+            tracing::Level::INFO => "INFO ",
+            tracing::Level::WARN => "WARN ",
+            tracing::Level::ERROR => "ERROR",
+        }
+        .to_string();
+        #[cfg(feature = "ansi")]
+        let level_str = if self.with_ansi {
+            match *level {
+                tracing::Level::TRACE => nu_ansi_term::Color::Purple.paint(level_str),
+                tracing::Level::DEBUG => nu_ansi_term::Color::Blue.paint(level_str),
+                tracing::Level::INFO => nu_ansi_term::Color::Green.paint(level_str),
+                tracing::Level::WARN => nu_ansi_term::Color::Yellow.paint(level_str),
+                tracing::Level::ERROR => nu_ansi_term::Color::Red.paint(level_str),
+            }
+            .to_string()
+        } else {
+            level_str
+        };
+        buf.push_str(&level_str);
+        buf.push(' ');
+    }
+
+    fn fmt_fields_and_qid(&self, buf: &mut String, event: &Event, scope: Scope<S>)
+    where
+        S: for<'s> LookupSpan<'s>,
+        Q: QidManager,
+    {
+        let mut kvs = Vec::new();
+        let mut message = None;
+        event.record(&mut RecordVisit(&mut kvs, &mut message));
+
+        let mut qid_field = None;
+
+        let print_stacktrace = event.metadata().level() >= &tracing::Level::DEBUG;
+
+        let mut spans = vec![];
+        for span in scope.from_root() {
+            if print_stacktrace {
+                spans.push(format_str(span.name()));
+            }
+
+            {
+                if let Some(qid) = span.extensions().get::<Q>().cloned() {
+                    qid_field.replace(qid.get());
+                }
+            }
+            {
+                if let Some(fields) = span.extensions_mut().remove::<RecordFields>() {
+                    for s in fields.0 {
+                        kvs.push(s)
+                    }
+                }
+            }
+        }
+
+        if let Some(qid) = qid_field {
+            buf.push_str(&format!("qid:{:#018x}", qid));
+            buf.push(' ');
+        }
+
+        if !kvs.is_empty() {
+            let kvs = kvs.join(", ");
+            #[cfg(feature = "ansi")]
+            let kvs = if self.with_ansi {
+                nu_ansi_term::Color::DarkGray.paint(kvs).to_string()
+            } else {
+                kvs
+            };
+            buf.push_str(&kvs);
+            buf.push(' ');
+        }
+
+        if let Some(message) = message {
+            buf.push_str(&message);
+        }
+
+        if print_stacktrace {
+            buf.push(' ');
+            let s = format!("stack:{}", spans.join("->"));
+            #[cfg(feature = "ansi")]
+            let s = if self.with_ansi {
+                nu_ansi_term::Color::DarkGray.paint(s).to_string()
+            } else {
+                s
+            };
+            buf.push_str(&s);
+        }
+    }
 }
 
 impl<Q, S, M> tracing_subscriber::Layer<S> for TaosLayer<Q, S, M>
 where
+    Q: QidManager,
     S: tracing::subscriber::Subscriber + for<'a> LookupSpan<'a>,
     M: for<'writer> MakeWriter<'writer> + 'static,
-    Q: QidManager,
 {
     fn on_new_span(
         &self,
@@ -128,17 +241,17 @@ where
             };
 
             // Part 1: timestamp
-            fmt_timestamp(buf, self.with_ansi);
+            self.fmt_timestamp(buf);
             // Part 2: process id
-            fmt_thread_id(buf, self.with_ansi);
+            self.fmt_thread_id(buf);
             // Part 3: level
             let metadata = event.metadata();
-            fmt_level(buf, metadata.level(), self.with_ansi);
+            self.fmt_level(buf, metadata.level());
             // Part 4 and Part 5:  span and QID
             let Some(scope) = ctx.event_scope(event) else {
                 return
             };
-            fmt_fields_and_qid::<_, Q>(buf, event, scope, self.with_ansi);
+            self.fmt_fields_and_qid(buf, event, scope);
             // Part 6: write event content
             buf.push('\n');
             // put all to writer
@@ -149,107 +262,6 @@ where
             }
             buf.clear();
         });
-    }
-}
-
-fn fmt_timestamp(buf: &mut String, with_ansi: bool) {
-    let local: DateTime<Local> = Local::now();
-    let mut s = local.format("%m/%d %H:%M:%S.%6f ").to_string();
-    if with_ansi {
-        s = with_ansi_foreground(&s, GRAY_COLOR)
-    };
-    buf.push_str(s.as_str())
-}
-
-fn fmt_thread_id(buf: &mut String, with_ansi: bool) {
-    let mut s = format!("{:0>8}", thread_id::get());
-    if with_ansi {
-        s = with_ansi_foreground(&s, GRAY_COLOR)
-    }
-    buf.push_str(s.as_str())
-}
-
-fn fmt_level(buf: &mut String, level: &tracing::Level, with_ansi: bool) {
-    buf.push(' ');
-    let mut level_str = match *level {
-        tracing::Level::TRACE => "TRACE",
-        tracing::Level::DEBUG => "DEBUG",
-        tracing::Level::INFO => "INFO ",
-        tracing::Level::WARN => "WARN ",
-        tracing::Level::ERROR => "ERROR",
-    }
-    .to_string();
-    if with_ansi {
-        level_str = match *level {
-            tracing::Level::TRACE => with_ansi_foreground(&level_str, PURPLE_COLOR),
-            tracing::Level::DEBUG => with_ansi_foreground(&level_str, BLUE_COLOR),
-            tracing::Level::INFO => with_ansi_foreground(&level_str, GREEN_COLOR),
-            tracing::Level::WARN => with_ansi_foreground(&level_str, YELLOW_COLOR),
-            tracing::Level::ERROR => with_ansi_foreground(&level_str, RED_COLOR),
-        }
-    }
-    buf.push_str(&level_str);
-    buf.push(' ');
-}
-
-fn fmt_fields_and_qid<S, Q>(buf: &mut String, event: &Event, scope: Scope<S>, with_ansi: bool)
-where
-    S: for<'s> LookupSpan<'s>,
-    Q: QidManager,
-{
-    let mut kvs = Vec::new();
-    let mut message = None;
-    event.record(&mut RecordVisit(&mut kvs, &mut message));
-
-    let mut qid_field = None;
-
-    let print_stacktrace = event.metadata().level() >= &tracing::Level::DEBUG;
-
-    let mut spans = vec![];
-    for span in scope.from_root() {
-        if print_stacktrace {
-            spans.push(format_str(span.name()));
-        }
-
-        {
-            if let Some(qid) = span.extensions().get::<Q>().cloned() {
-                qid_field.replace(qid.get());
-            }
-        }
-        {
-            if let Some(fields) = span.extensions_mut().remove::<RecordFields>() {
-                for s in fields.0 {
-                    kvs.push(s)
-                }
-            }
-        }
-    }
-
-    if let Some(qid) = qid_field {
-        buf.push_str(&format!("qid:{:#018x}", qid));
-        buf.push(' ');
-    }
-
-    if !kvs.is_empty() {
-        let mut kvs = kvs.join(", ");
-        if with_ansi {
-            kvs = with_ansi_foreground(&kvs, GRAY_COLOR);
-        }
-        buf.push_str(&kvs);
-        buf.push(' ');
-    }
-
-    if let Some(message) = message {
-        buf.push_str(&message);
-    }
-
-    if print_stacktrace {
-        buf.push(' ');
-        let mut s = format!("stack:{}", spans.join("->"));
-        if with_ansi {
-            s = with_ansi_foreground(&s, GRAY_COLOR);
-        }
-        buf.push_str(&s);
     }
 }
 
@@ -284,10 +296,6 @@ fn format_str(value: &str) -> String {
     } else {
         value.to_string()
     }
-}
-
-fn with_ansi_foreground(content: &str, color: usize) -> String {
-    format!("\x1b[{color}m{content}\x1b[0m")
 }
 
 #[cfg(test)]

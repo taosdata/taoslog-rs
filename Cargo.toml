@@ -17,11 +17,15 @@ snafu = "0.8.4"
 flate2 = "1.0.33"
 thread-id = "4.2.2"
 regex = "1.10.6"
-sysinfo = { version = "0.31.3", default-features = false, features = ["disk"] }
+sysinfo = { version = "0.31.4", default-features = false, features = ["disk"] }
 flume = "0.11.0"
 arrow-schema = "52.2.0"
 http = "*"
+nu-ansi-term = { version = "0.50.1", optional = true }
 
 [dev-dependencies]
 crossbeam = "0.8.4"
 rand = "0.8.5"
+
+[features]
+ansi = ["dep:nu-ansi-term"]
