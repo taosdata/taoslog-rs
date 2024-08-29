@@ -86,24 +86,29 @@ pub struct RollingFileAppenderBuilder<'a> {
 }
 
 impl<'a> RollingFileAppenderBuilder<'a> {
-    pub fn rotation_count(mut self, rotation_count: u16) -> Self {
-        self.rotation_count = rotation_count as usize;
-        self
+    pub fn rotation_count(self, rotation_count: u16) -> Self {
+        Self {
+            rotation_count: rotation_count as usize,
+            ..self
+        }
     }
 
-    pub fn rotation_size(mut self, rotation_size: &'a str) -> Self {
-        self.rotation_size = rotation_size;
-        self
+    pub fn rotation_size(self, rotation_size: &'a str) -> Self {
+        Self {
+            rotation_size,
+            ..self
+        }
     }
 
-    pub fn compress(mut self, compress: bool) -> Self {
-        self.compress = compress;
-        self
+    pub fn compress(self, compress: bool) -> Self {
+        Self { compress, ..self }
     }
 
-    pub fn reserved_disk_size(mut self, reserved_disk_size: &'a str) -> Self {
-        self.reserved_disk_size = reserved_disk_size;
-        self
+    pub fn reserved_disk_size(self, reserved_disk_size: &'a str) -> Self {
+        Self {
+            reserved_disk_size,
+            ..self
+        }
     }
 
     pub fn build(mut self) -> Result<RollingFileAppender> {
