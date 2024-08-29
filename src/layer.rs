@@ -245,7 +245,11 @@ where
 
     if print_stacktrace {
         buf.push(' ');
-        buf.push_str(&format!("stack:{}", spans.join("->")));
+        let mut s = format!("stack:{}", spans.join("->"));
+        if with_ansi {
+            s = with_ansi_foreground(&s, GRAY_COLOR);
+        }
+        buf.push_str(&s);
     }
 }
 
