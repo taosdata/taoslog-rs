@@ -35,7 +35,11 @@ fn main() {
     layers.push(TaosLayer::<Qid>::new(appender).boxed());
 
     if cfg!(debug_assertions) {
-        layers.push(TaosLayer::<Qid, _, _>::new(std::io::stdout).boxed());
+        layers.push(
+            TaosLayer::<Qid, _, _>::new(std::io::stdout)
+                .with_ansi()
+                .boxed(),
+        );
     }
 
     tracing_subscriber::registry().with(layers).init();
@@ -44,6 +48,8 @@ fn main() {
         tracing::info!(a = "aaa", b = "bbb", "outer example");
 
         tracing::info_span!("inner").in_scope(|| {
+            tracing::trace!("trace example");
+            tracing::warn!("warn example");
             tracing::debug!("inner info log example");
             tracing::error!(c = "ccc", d = "ddd", "inner example");
         });

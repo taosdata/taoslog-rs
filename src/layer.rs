@@ -13,11 +13,19 @@ use tracing_subscriber::{
 
 use crate::{writer::RollingFileAppender, QidManager};
 
+const GRAY_COLOR: usize = 90;
+const RED_COLOR: usize = 91;
+const GREEN_COLOR: usize = 92;
+const YELLOW_COLOR: usize = 93;
+const BLUE_COLOR: usize = 94;
+const PURPLE_COLOR: usize = 95;
+
 #[derive(Clone)]
 struct RecordFields(Vec<String>, Option<String>);
 
 pub struct TaosLayer<Q, S = Registry, M = RollingFileAppender> {
     make_writer: M,
+    with_ansi: bool,
     _s: PhantomData<fn(S)>,
     _q: PhantomData<Q>,
 }
@@ -26,8 +34,16 @@ impl<Q, S, M> TaosLayer<S, Q, M> {
     pub fn new(make_writer: M) -> Self {
         Self {
             make_writer,
+            with_ansi: false,
             _s: PhantomData,
             _q: PhantomData,
+        }
+    }
+
+    pub fn with_ansi(self) -> Self {
+        Self {
+            with_ansi: true,
+            ..self
         }
     }
 }
@@ -112,17 +128,17 @@ where
             };
 
             // Part 1: timestamp
-            fmt_timestamp(buf);
+            fmt_timestamp(buf, self.with_ansi);
             // Part 2: process id
-            fmt_thread_id(buf);
+            fmt_thread_id(buf, self.with_ansi);
             // Part 3: level
             let metadata = event.metadata();
-            fmt_level(buf, metadata.level());
+            fmt_level(buf, metadata.level(), self.with_ansi);
             // Part 4 and Part 5:  span and QID
             let Some(scope) = ctx.event_scope(event) else {
                 return
             };
-            fmt_fields_and_qid::<S, Q>(buf, event, scope);
+            fmt_fields_and_qid::<_, Q>(buf, event, scope, self.with_ansi);
             // Part 6: write event content
             buf.push('\n');
             // put all to writer
@@ -136,55 +152,47 @@ where
     }
 }
 
-fn fmt_timestamp(buf: &mut String) {
+fn fmt_timestamp(buf: &mut String, with_ansi: bool) {
     let local: DateTime<Local> = Local::now();
-    let s = local.format("%m/%d %H:%M:%S.%6f ").to_string();
+    let mut s = local.format("%m/%d %H:%M:%S.%6f ").to_string();
+    if with_ansi {
+        s = with_ansi_foreground(&s, GRAY_COLOR)
+    };
     buf.push_str(s.as_str())
 }
 
-fn fmt_thread_id(buf: &mut String) {
-    buf.push_str(&format!("{:0>8}", thread_id::get()))
+fn fmt_thread_id(buf: &mut String, with_ansi: bool) {
+    let mut s = format!("{:0>8}", thread_id::get());
+    if with_ansi {
+        s = with_ansi_foreground(&s, GRAY_COLOR)
+    }
+    buf.push_str(s.as_str())
 }
 
-fn fmt_level(buf: &mut String, level: &tracing::Level) {
+fn fmt_level(buf: &mut String, level: &tracing::Level, with_ansi: bool) {
     buf.push(' ');
-    let level = match *level {
+    let mut level_str = match *level {
         tracing::Level::TRACE => "TRACE",
         tracing::Level::DEBUG => "DEBUG",
         tracing::Level::INFO => "INFO ",
         tracing::Level::WARN => "WARN ",
         tracing::Level::ERROR => "ERROR",
-    };
-    buf.push_str(level);
+    }
+    .to_string();
+    if with_ansi {
+        level_str = match *level {
+            tracing::Level::TRACE => with_ansi_foreground(&level_str, PURPLE_COLOR),
+            tracing::Level::DEBUG => with_ansi_foreground(&level_str, BLUE_COLOR),
+            tracing::Level::INFO => with_ansi_foreground(&level_str, GREEN_COLOR),
+            tracing::Level::WARN => with_ansi_foreground(&level_str, YELLOW_COLOR),
+            tracing::Level::ERROR => with_ansi_foreground(&level_str, RED_COLOR),
+        }
+    }
+    buf.push_str(&level_str);
     buf.push(' ');
 }
 
-pub struct RecordVisit<'a>(&'a mut Vec<String>, &'a mut Option<String>);
-
-impl<'a> Visit for RecordVisit<'a> {
-    fn record_str(&mut self, field: &field::Field, value: &str) {
-        if field.name() == "message" {
-            self.1.replace(value.to_string());
-        } else {
-            self.0.push(format!(
-                "{}:{}",
-                format_str(field.name()),
-                format_str(value)
-            ));
-        }
-    }
-
-    fn record_debug(&mut self, field: &field::Field, value: &dyn std::fmt::Debug) {
-        if field.name() == "message" {
-            self.1.replace(format!("{value:?}"));
-        } else {
-            self.0
-                .push(format!("{}:{value:?}", format_str(field.name())));
-        }
-    }
-}
-
-fn fmt_fields_and_qid<'a, S, Q>(buf: &mut String, event: &Event, scope: Scope<S>)
+fn fmt_fields_and_qid<S, Q>(buf: &mut String, event: &Event, scope: Scope<S>, with_ansi: bool)
 where
     S: for<'s> LookupSpan<'s>,
     Q: QidManager,
@@ -223,7 +231,11 @@ where
     }
 
     if !kvs.is_empty() {
-        buf.push_str(&kvs.join(", "));
+        let mut kvs = kvs.join(", ");
+        if with_ansi {
+            kvs = with_ansi_foreground(&kvs, GRAY_COLOR);
+        }
+        buf.push_str(&kvs);
         buf.push(' ');
     }
 
@@ -237,12 +249,41 @@ where
     }
 }
 
+pub struct RecordVisit<'a>(&'a mut Vec<String>, &'a mut Option<String>);
+
+impl<'a> Visit for RecordVisit<'a> {
+    fn record_str(&mut self, field: &field::Field, value: &str) {
+        if field.name() == "message" {
+            self.1.replace(value.to_string());
+        } else {
+            self.0.push(format!(
+                "{}:{}",
+                format_str(field.name()),
+                format_str(value)
+            ));
+        }
+    }
+
+    fn record_debug(&mut self, field: &field::Field, value: &dyn std::fmt::Debug) {
+        if field.name() == "message" {
+            self.1.replace(format!("{value:?}"));
+        } else {
+            self.0
+                .push(format!("{}:{value:?}", format_str(field.name())));
+        }
+    }
+}
+
 fn format_str(value: &str) -> String {
     if value.contains(' ') {
         format!("{value:?}")
     } else {
         value.to_string()
     }
+}
+
+fn with_ansi_foreground(content: &str, color: usize) -> String {
+    format!("\x1b[{color}m{content}\x1b[0m")
 }
 
 #[cfg(test)]
@@ -255,15 +296,6 @@ mod tests {
         utils::{QidMetadataGetter, QidMetadataSetter, Span},
         QidManager,
     };
-
-    use super::fmt_thread_id;
-
-    #[test]
-    fn fmt_thread_id_test() {
-        let mut buf = String::new();
-        fmt_thread_id(&mut buf);
-        dbg!(buf);
-    }
 
     #[test]
     fn layer_test() {
