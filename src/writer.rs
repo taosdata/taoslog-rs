@@ -422,9 +422,9 @@ fn handle_old_files(config: Config, compress_filename: Option<PathBuf>) -> Resul
             let filename = entry.file_name().to_str()?.to_string();
             let res = parse_filename(&config.component_name, config.instance_id, &filename)?;
 
-            Some((filename, res))
+            Some((config.log_dir.join(filename), res))
         })
-        .collect::<Vec<(String, (DateTime<Local>, usize))>>();
+        .collect::<Vec<(PathBuf, (DateTime<Local>, usize))>>();
     files.sort_by(|(_, a), (_, b)| filename_cmp(a, b));
     // dbg!(&files);
     if files.is_empty() {
