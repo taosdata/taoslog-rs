@@ -20,6 +20,7 @@ pub struct TaosLayer<Q, S = Registry, M = RollingFileAppender> {
     make_writer: M,
     #[cfg(feature = "ansi")]
     with_ansi: bool,
+    with_location: bool,
     _s: PhantomData<fn(S)>,
     _q: PhantomData<Q>,
 }
@@ -30,6 +31,7 @@ impl<Q, S, M> TaosLayer<Q, S, M> {
             make_writer,
             #[cfg(feature = "ansi")]
             with_ansi: false,
+            with_location: false,
             _s: PhantomData,
             _q: PhantomData,
         }
@@ -39,6 +41,13 @@ impl<Q, S, M> TaosLayer<Q, S, M> {
     pub fn with_ansi(self) -> Self {
         Self {
             with_ansi: true,
+            ..self
+        }
+    }
+
+    pub fn with_location(self) -> Self {
+        Self {
+            with_location: true,
             ..self
         }
     }
@@ -157,6 +166,21 @@ impl<Q, S, M> TaosLayer<Q, S, M> {
                 s
             };
             buf.push_str(&s);
+        }
+
+        if self.with_location {
+            let meta = event.metadata();
+            if let (Some(file), Some(line)) = (meta.file(), meta.line()) {
+                buf.push(' ');
+                let s = format!("at {file}:{line}");
+                #[cfg(feature = "ansi")]
+                let s = if self.with_ansi {
+                    nu_ansi_term::Color::DarkGray.paint(s).to_string()
+                } else {
+                    s
+                };
+                buf.push_str(&s);
+            }
         }
     }
 }
