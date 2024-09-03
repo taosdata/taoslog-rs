@@ -245,18 +245,18 @@ pub struct RollingFileAppender {
 }
 
 impl RollingFileAppender {
-    pub fn builder(
+    pub fn builder<'a>(
         log_dir: impl AsRef<Path>,
-        component: &str,
+        component: impl Into<String>,
         instance_id: u8,
-    ) -> RollingFileAppenderBuilder {
+    ) -> RollingFileAppenderBuilder<'a> {
         RollingFileAppenderBuilder {
             log_dir: log_dir.as_ref().to_path_buf(),
             rotation_count: 30,
             rotation_size: "1GB",
             compress: false,
             reserved_disk_size: "2GB",
-            component_name: component.to_string(),
+            component_name: component.into(),
             instance_id,
             stop_logging_threshold: 50,
         }
