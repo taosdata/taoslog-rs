@@ -353,7 +353,7 @@ impl RollingFileAppender {
                 &self.config.log_dir,
             )?;
             loop {
-                let filename = if state.max_seq_id == 0 {
+                let filename = if max_seq_id == 0 {
                     format!(
                         "{}_{}_{}.log",
                         self.config.component_name,
@@ -370,9 +370,10 @@ impl RollingFileAppender {
                     )
                 };
                 let filename = self.config.log_dir.join(filename);
-                match create_file(filename)? {
+                match create_file(&filename)? {
                     Some(file) => {
                         state.max_seq_id = max_seq_id;
+                        state.file_path = filename;
                         return Ok(Some(file));
                     }
                     None => max_seq_id += 1,
