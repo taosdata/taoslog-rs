@@ -12,7 +12,7 @@ use std::{
 
 use chrono::{
     format::{DelayedFormat, StrftimeItems},
-    DateTime, Local, NaiveDateTime, NaiveTime, TimeDelta, TimeZone,
+    DateTime, Local, NaiveDateTime, NaiveTime, TimeZone,
 };
 use flate2::write::GzEncoder;
 use parking_lot::{RwLock, RwLockReadGuard};
@@ -31,35 +31,11 @@ const DATE_TIME_FORMAT: &str = "%Y%m%d %H%M%S";
 
 #[derive(Clone)]
 struct Rotation {
-    time_delta: TimeDelta,
     /// file size in bytes
     file_size: u64,
 }
 
-#[cfg(test)]
-impl Default for Rotation {
-    fn default() -> Self {
-        Self {
-            time_delta: TimeDelta::days(1),
-            file_size: Default::default(),
-        }
-    }
-}
-
-impl Rotation {
-    fn next_timestamp(&self, now: DateTime<Local>) -> i64 {
-        (now + self.time_delta)
-            .date_naive()
-            .and_hms_opt(0, 0, 0)
-            .unwrap()
-            .and_local_timezone(Local)
-            .unwrap()
-            .timestamp()
-    }
-}
-
 struct State {
-    next_date: i64,
     max_seq_id: usize,
     file_path: PathBuf,
 }
@@ -135,7 +111,8 @@ impl<'a> RollingFileAppenderBuilder<'a> {
         }
 
         // current max seq id
-        let mut max_seq_id = max_seq_id(&self.component_name, self.instance_id, &self.log_dir)?;
+        let mut max_seq_id =
+            today_max_seq_id(&self.component_name, self.instance_id, &self.log_dir)?;
 
         // init log file
         let now = Local::now();
@@ -161,13 +138,10 @@ impl<'a> RollingFileAppenderBuilder<'a> {
 
         // next rotate time
         let rotation = Rotation {
-            time_delta: TimeDelta::days(1),
             file_size: parse_unit_size(self.rotation_size)?,
         };
-        let next_date = rotation.next_timestamp(now);
 
         let state = State {
-            next_date,
             max_seq_id,
             file_path,
         };
@@ -266,47 +240,11 @@ impl RollingFileAppender {
         let mut state = self.state.write();
 
         // rotate by time
-        let now = Local::now();
-        let old_next_date = state.next_date;
-        if now.timestamp() >= old_next_date {
-            state.max_seq_id = 0;
-            let (filename, file) = loop {
-                // 创建新文件
-                let filename = if state.max_seq_id == 0 {
-                    format!(
-                        "{}_{}_{}.log",
-                        self.config.component_name,
-                        self.config.instance_id,
-                        time_format(now)
-                    )
-                } else {
-                    format!(
-                        "{}_{}_{}.log.{}",
-                        self.config.component_name,
-                        self.config.instance_id,
-                        time_format(now),
-                        state.max_seq_id
-                    )
-                };
-                let filename = self.config.log_dir.join(filename);
-                match create_file(&filename)? {
-                    Some(file) => break (filename, file),
-                    None => state.max_seq_id += 1,
-                }
-            };
-
-            state.next_date = self.config.rotation.next_timestamp(now);
-            // 处理旧文件
-            self.event_tx
-                .send(HandleOldFileEvent {
-                    config: self.config.clone(),
-                    compress_file: Some(state.file_path.clone()),
-                })
-                .ok();
-            state.file_path = self.config.log_dir.join(filename);
+        if let Some(file) = self.check_today_file_exists()? {
             return Ok(Some(file));
         }
 
+        let now = Local::now();
         // rotate by size
         let cur_size = self
             .writer
@@ -347,7 +285,7 @@ impl RollingFileAppender {
 
         // 当前文件被误删除的情况
         if !state.file_path.is_file() {
-            let mut max_seq_id = max_seq_id(
+            let mut max_seq_id = today_max_seq_id(
                 &self.config.component_name,
                 self.config.instance_id,
                 &self.config.log_dir,
@@ -383,9 +321,47 @@ impl RollingFileAppender {
 
         Ok(None)
     }
+
+    fn check_today_file_exists(&self) -> Result<Option<File>> {
+        // today max seq id
+        let max_seq_id = today_max_seq_id(
+            &self.config.component_name,
+            self.config.instance_id,
+            &self.config.log_dir,
+        )?;
+
+        // init log file
+        let today = time_format(Local::now());
+        let (file_path, file) = {
+            if max_seq_id != 0 {
+                return Ok(None);
+            }
+            let filename = format!(
+                "{}_{}_{}.log",
+                &self.config.component_name, self.config.instance_id, today
+            );
+            let file_path = self.config.log_dir.join(&filename);
+            match create_file(&file_path)? {
+                Some(file) => (file_path, file),
+                None => return Ok(None),
+            }
+        };
+
+        {
+            let mut state = self.state.write();
+            state.file_path = file_path;
+            state.max_seq_id = max_seq_id;
+        }
+
+        Ok(Some(file))
+    }
 }
 
-fn max_seq_id(component_name: &str, instance_id: u8, log_dir: impl AsRef<Path>) -> Result<usize> {
+fn today_max_seq_id(
+    component_name: &str,
+    instance_id: u8,
+    log_dir: impl AsRef<Path>,
+) -> Result<usize> {
     let log_dir = log_dir.as_ref();
     Ok(fs::read_dir(log_dir)
         .context(ReadDirSnafu { path: log_dir })?
@@ -699,28 +675,6 @@ mod tests {
 
         assert!(parse_unit_size("5GBK").is_err());
         assert!(parse_unit_size("GB").is_err());
-    }
-
-    #[test]
-    fn next_timestamp_test() {
-        let rotatoin = Rotation::default();
-        assert_eq!(
-            rotatoin.next_timestamp(
-                DateTime::from_timestamp_millis(1724378547000)
-                    .unwrap()
-                    .with_timezone(&Local)
-            ), // 2024-08-23 10:02:27
-            1724428800 // 2024-08-24 00:00:00
-        );
-
-        assert_eq!(
-            rotatoin.next_timestamp(
-                DateTime::from_timestamp_millis(1724428800000)
-                    .unwrap()
-                    .with_timezone(&Local)
-            ), // 2024-08-24 00:00:00
-            1724515200 // 2024-08-25 00:00:00
-        );
     }
 
     #[test]

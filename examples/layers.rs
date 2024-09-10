@@ -37,7 +37,7 @@ fn main() {
         .unwrap();
     layers.push(
         TaosLayer::<Qid>::new(appender)
-            .with_filter(LevelFilter::TRACE)
+            .with_filter(LevelFilter::WARN)
             .boxed(),
     );
 
@@ -46,7 +46,7 @@ fn main() {
             TaosLayer::<Qid, _, _>::new(std::io::stdout)
                 .with_ansi()
                 .with_location()
-                .with_filter(LevelFilter::TRACE)
+                .with_filter(LevelFilter::WARN)
                 .boxed(),
         );
     }
