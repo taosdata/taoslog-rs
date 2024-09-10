@@ -1,4 +1,7 @@
+use std::io::BufRead;
+
 use taoslog::{layer::TaosLayer, writer::RollingFileAppender, QidManager};
+use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{
     layer::{Layer, SubscriberExt},
     util::SubscriberInitExt,
@@ -32,27 +35,38 @@ fn main() {
         .rotation_size("1GB")
         .build()
         .unwrap();
-    layers.push(TaosLayer::<Qid>::new(appender).boxed());
+    layers.push(
+        TaosLayer::<Qid>::new(appender)
+            .with_filter(LevelFilter::TRACE)
+            .boxed(),
+    );
 
     if cfg!(debug_assertions) {
         layers.push(
             TaosLayer::<Qid, _, _>::new(std::io::stdout)
                 .with_ansi()
                 .with_location()
+                .with_filter(LevelFilter::TRACE)
                 .boxed(),
         );
     }
 
     tracing_subscriber::registry().with(layers).init();
 
-    tracing::info_span!("outer", "k" = "kkk").in_scope(|| {
-        tracing::info!(a = "aaa", b = "bbb", "outer example");
+    let stdin = std::io::stdin();
+    let mut stdin_lock = stdin.lock();
+    loop {
+        tracing::info_span!("outer", "k" = "kkk").in_scope(|| {
+            tracing::info!(a = "aaa", b = "bbb", "outer example");
 
-        tracing::info_span!("inner").in_scope(|| {
-            tracing::trace!("trace example");
-            tracing::warn!("warn example");
-            tracing::debug!("inner info log example");
-            tracing::error!(c = "ccc", d = "ddd", "inner example");
+            tracing::info_span!("inner").in_scope(|| {
+                tracing::trace!("trace example");
+                tracing::warn!("warn example");
+                tracing::debug!("inner info log example");
+                tracing::error!(c = "ccc", d = "ddd", "inner example");
+            });
         });
-    });
+
+        stdin_lock.read_line(&mut String::new()).unwrap();
+    }
 }

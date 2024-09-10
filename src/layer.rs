@@ -102,7 +102,7 @@ impl<Q, S, M> TaosLayer<Q, S, M> {
         buf.push(' ');
     }
 
-    fn fmt_fields_and_qid(&self, buf: &mut String, event: &Event, scope: Scope<S>)
+    fn fmt_fields_and_qid(&self, buf: &mut String, event: &Event, scope: Option<Scope<S>>)
     where
         S: for<'s> LookupSpan<'s>,
         Q: QidManager,
@@ -116,20 +116,21 @@ impl<Q, S, M> TaosLayer<Q, S, M> {
         let print_stacktrace = event.metadata().level() >= &tracing::Level::DEBUG;
 
         let mut spans = vec![];
-        for span in scope.from_root() {
-            if print_stacktrace {
-                spans.push(format_str(span.name()));
-            }
-
-            {
-                if let Some(qid) = span.extensions().get::<Q>().cloned() {
-                    qid_field.replace(qid.get());
+        if let Some(scope) = scope {
+            for span in scope.from_root() {
+                if print_stacktrace {
+                    spans.push(format_str(span.name()));
                 }
-            }
-            {
-                if let Some(fields) = span.extensions_mut().remove::<RecordFields>() {
-                    for s in fields.0 {
-                        kvs.push(s)
+
+                {
+                    if let Some(qid) = span.extensions().get::<Q>().cloned() {
+                        qid_field.replace(qid.get());
+                    }
+                }
+
+                {
+                    if let Some(fields) = span.extensions_mut().remove::<RecordFields>() {
+                        kvs.extend(fields.0.into_iter());
                     }
                 }
             }
@@ -156,7 +157,7 @@ impl<Q, S, M> TaosLayer<Q, S, M> {
             buf.push_str(&message);
         }
 
-        if print_stacktrace {
+        if print_stacktrace && !spans.is_empty() {
             buf.push(' ');
             let s = format!("stack:{}", spans.join("->"));
             #[cfg(feature = "ansi")]
@@ -272,10 +273,7 @@ where
             let metadata = event.metadata();
             self.fmt_level(buf, metadata.level());
             // Part 4 and Part 5:  span and QID
-            let Some(scope) = ctx.event_scope(event) else {
-                return
-            };
-            self.fmt_fields_and_qid(buf, event, scope);
+            self.fmt_fields_and_qid(buf, event, ctx.event_scope(event));
             // Part 6: write event content
             buf.push('\n');
             // put all to writer

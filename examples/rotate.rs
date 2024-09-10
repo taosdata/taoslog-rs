@@ -3,6 +3,8 @@ use std::{io::BufRead, thread};
 use crossbeam::sync::WaitGroup;
 use rand::Rng;
 use taoslog::{layer::TaosLayer, writer::RollingFileAppender, QidManager};
+use tracing::level_filters::LevelFilter;
+use tracing_subscriber::Layer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Clone)]
@@ -36,7 +38,7 @@ fn main() {
         .unwrap();
 
     tracing_subscriber::registry()
-        .with(TaosLayer::<Qid>::new(appender))
+        .with(TaosLayer::<Qid>::new(appender).with_filter(LevelFilter::TRACE))
         .try_init()
         .unwrap();
 
@@ -46,6 +48,7 @@ fn main() {
         thread::spawn(move || {
             for _ in 0..1 {
                 tracing::info_span!("outer", "k" = "kkk").in_scope(|| {
+                    tracing::trace!("outer trace example");
                     tracing::info!(a = "aaa", b = "bbb", process = rand_id, "outer example");
 
                     tracing::info_span!("inner").in_scope(|| {
