@@ -137,7 +137,7 @@ impl<Q, S, M> TaosLayer<Q, S, M> {
         }
 
         if let Some(qid) = qid_field {
-            buf.push_str(&format!("QID:{}", qid.as_string()));
+            buf.push_str(&format!("QID:{}", qid.display()));
             buf.push(' ');
         }
 

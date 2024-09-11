@@ -49,8 +49,16 @@ pub trait QidManager: Send + Sync + 'static + Clone + From<u64> {
 
     fn get(&self) -> u64;
 
-    fn as_string(&self) -> String {
-        format!("{:#018x}", self.get())
+    fn display(&self) -> QidDisplay {
+        QidDisplay(self.get())
+    }
+}
+
+pub struct QidDisplay(u64);
+
+impl std::fmt::Display for QidDisplay {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:#018x}", self.0)
     }
 }
 

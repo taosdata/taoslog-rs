@@ -42,7 +42,7 @@ impl QidMetadataSetter for actix_web::http::header::HeaderMap {
     {
         self.insert(
             actix_web::http::header::HeaderName::from_static(QID_HEADER_KEY),
-            actix_web::http::header::HeaderValue::from_str(&qid.as_string()).unwrap(),
+            actix_web::http::header::HeaderValue::from_str(&format!("{}", qid.display())).unwrap(),
         );
     }
 }
@@ -69,7 +69,7 @@ impl QidMetadataSetter for http::header::HeaderMap {
     {
         self.insert(
             QID_HEADER_KEY,
-            http::header::HeaderValue::from_str(&qid.as_string()).unwrap(),
+            http::header::HeaderValue::from_str(&format!("{}", qid.display())).unwrap(),
         );
     }
 }
@@ -95,7 +95,7 @@ impl QidMetadataSetter for arrow_schema::Schema {
         Q: QidManager,
     {
         self.metadata
-            .insert(QID_HEADER_KEY.to_owned(), qid.as_string());
+            .insert(QID_HEADER_KEY.to_owned(), format!("{}", qid.display()));
     }
 }
 
@@ -249,7 +249,7 @@ mod tests {
     #[test]
     fn qid_display() {
         assert_eq!(
-            Qid::from(0x7fffffffffffffff).as_string(),
+            format!("{}", Qid::from(0x7fffffffffffffff).display()),
             "0x7fffffffffffffff"
         )
     }
