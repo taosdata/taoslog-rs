@@ -358,6 +358,13 @@ impl RollingFileAppender {
         let file_path = self.config.log_dir.join(&filename);
         match create_file(&file_path)? {
             Some(file) => {
+                // 处理旧文件
+                self.event_tx
+                    .send(HandleOldFileEvent {
+                        config: self.config.clone(),
+                        compress_file: Some(state.file_path.clone()),
+                    })
+                    .ok();
                 state.file_path = file_path;
                 state.max_seq_id = max_seq_id;
                 Ok(Some(file))
