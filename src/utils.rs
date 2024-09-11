@@ -42,8 +42,7 @@ impl QidMetadataSetter for actix_web::http::header::HeaderMap {
     {
         self.insert(
             actix_web::http::header::HeaderName::from_static(QID_HEADER_KEY),
-            actix_web::http::header::HeaderValue::from_str(&format!("{:#018x}", qid.get()))
-                .unwrap(),
+            actix_web::http::header::HeaderValue::from_str(&qid.as_string()).unwrap(),
         );
     }
 }
@@ -70,7 +69,7 @@ impl QidMetadataSetter for http::header::HeaderMap {
     {
         self.insert(
             QID_HEADER_KEY,
-            http::header::HeaderValue::from_str(&format!("{:#018x}", qid.get())).unwrap(),
+            http::header::HeaderValue::from_str(&qid.as_string()).unwrap(),
         );
     }
 }
@@ -96,7 +95,7 @@ impl QidMetadataSetter for arrow_schema::Schema {
         Q: QidManager,
     {
         self.metadata
-            .insert(QID_HEADER_KEY.to_owned(), format!("{:#018x}", qid.get()));
+            .insert(QID_HEADER_KEY.to_owned(), qid.as_string());
     }
 }
 
@@ -245,5 +244,13 @@ mod tests {
             let qid: Qid = span.get_qid().unwrap();
             assert_eq!(qid.get(), qid_u64);
         }
+    }
+
+    #[test]
+    fn qid_display() {
+        assert_eq!(
+            Qid::from(0x7fffffffffffffff).as_string(),
+            "0x7fffffffffffffff"
+        )
     }
 }

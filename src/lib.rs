@@ -48,6 +48,10 @@ pub trait QidManager: Send + Sync + 'static + Clone + From<u64> {
     fn init() -> Self;
 
     fn get(&self) -> u64;
+
+    fn as_string(&self) -> String {
+        format!("{:#018x}", self.get())
+    }
 }
 
 #[cfg(test)]

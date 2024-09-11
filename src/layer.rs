@@ -124,7 +124,7 @@ impl<Q, S, M> TaosLayer<Q, S, M> {
 
                 {
                     if let Some(qid) = span.extensions().get::<Q>().cloned() {
-                        qid_field.replace(qid.get());
+                        qid_field.replace(qid);
                     }
                 }
 
@@ -137,7 +137,7 @@ impl<Q, S, M> TaosLayer<Q, S, M> {
         }
 
         if let Some(qid) = qid_field {
-            buf.push_str(&format!("QID:{:#018x}", qid));
+            buf.push_str(&format!("QID:{}", qid.as_string()));
             buf.push(' ');
         }
 
