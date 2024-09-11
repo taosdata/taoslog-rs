@@ -2,7 +2,7 @@ use tracing_subscriber::{registry::LookupSpan, Registry};
 
 use crate::QidManager;
 
-const QID_HEADER_KEY: &str = "x-qid";
+pub const QID_HEADER_KEY: &str = "x-qid";
 
 pub struct Span;
 
