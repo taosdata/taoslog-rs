@@ -42,6 +42,8 @@ pub enum Error {
     DiskMountPointNotFound,
     #[snafu(display("Get log absolute path error: {source}"))]
     GetLogAbsolutePath { source: std::io::Error },
+    #[snafu(display("Get CPU nums error: {source}"))]
+    GetCpuNums { source: std::io::Error },
 }
 
 pub trait QidManager: Send + Sync + 'static + Clone + From<u64> {

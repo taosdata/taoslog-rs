@@ -16,6 +16,7 @@ use chrono::{
 };
 use flate2::write::GzEncoder;
 use parking_lot::{RwLock, RwLockReadGuard};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use regex::Regex;
 use snafu::{ensure, OptionExt, ResultExt};
 use sysinfo::Disks;
@@ -38,18 +39,6 @@ struct Rotation {
 struct State {
     max_seq_id: usize,
     file_path: PathBuf,
-}
-
-#[derive(Debug, Clone)]
-struct Config {
-    log_dir: PathBuf,
-    component_name: String,
-    instance_id: u8,
-    rotation: Rotation,
-    reserced_disk_size: u64,
-    compress: bool,
-    rotate_count: usize,
-    stop_logging_threshold: f64,
 }
 
 pub struct RollingFileAppenderBuilder<'a> {
@@ -114,12 +103,6 @@ impl<'a> RollingFileAppenderBuilder<'a> {
         let mut max_seq_id =
             today_max_seq_id(&self.component_name, self.instance_id, &self.log_dir)?;
 
-        let last_uncompress_file_path = if self.compress {
-            last_uncompress_file(&self.component_name, self.instance_id, &self.log_dir)?
-        } else {
-            None
-        };
-
         // init log file
         let now = Local::now();
         let today = time_format(now);
@@ -173,15 +156,6 @@ impl<'a> RollingFileAppenderBuilder<'a> {
         });
 
         let (event_tx, event_rx) = flume::bounded(1);
-        thread::spawn(move || {
-            while let Ok(HandleOldFileEvent {
-                config,
-                compress_file,
-            }) = event_rx.recv()
-            {
-                handle_old_files(config, compress_file).ok();
-            }
-        });
 
         let config = Config {
             log_dir: self.log_dir,
@@ -194,13 +168,17 @@ impl<'a> RollingFileAppenderBuilder<'a> {
             stop_logging_threshold: self.stop_logging_threshold as f64 / 100f64,
         };
 
+        thread::spawn({
+            let config = config.clone();
+            move || {
+                while event_rx.recv().is_ok() {
+                    config.handle_old_files().ok();
+                }
+            }
+        });
+
         // 处理旧文件
-        event_tx
-            .send(HandleOldFileEvent {
-                config: config.clone(),
-                compress_file: last_uncompress_file_path,
-            })
-            .ok();
+        event_tx.send(()).ok();
 
         let this = RollingFileAppender {
             config,
@@ -219,7 +197,7 @@ pub struct RollingFileAppender {
     config: Config,
     disk_available_space: Arc<AtomicU64>,
     level_downgrade: AtomicBool,
-    event_tx: flume::Sender<HandleOldFileEvent>,
+    event_tx: flume::Sender<()>,
     state: RwLock<State>,
     writer: RwLock<File>,
 }
@@ -278,12 +256,7 @@ impl RollingFileAppender {
                 }
             };
             // 处理旧文件
-            self.event_tx
-                .send(HandleOldFileEvent {
-                    config: self.config.clone(),
-                    compress_file: Some(state.file_path.clone()),
-                })
-                .ok();
+            self.event_tx.try_send(()).ok();
             state.file_path = filename;
             return Ok(Some(file));
         }
@@ -363,12 +336,7 @@ impl RollingFileAppender {
         let file_path = self.config.log_dir.join(&filename);
         match create_file(&file_path)? {
             Some(file) => {
-                self.event_tx
-                    .send(HandleOldFileEvent {
-                        config: self.config.clone(),
-                        compress_file: Some(state.file_path.clone()),
-                    })
-                    .ok();
+                self.event_tx.try_send(()).ok();
                 state.file_path = file_path;
                 state.max_seq_id = max_seq_id;
                 Ok(Some(file))
@@ -403,97 +371,75 @@ fn today_max_seq_id(
         .unwrap_or_default())
 }
 
-fn last_uncompress_file(
-    component_name: &str,
+#[derive(Debug, Clone)]
+struct Config {
+    log_dir: PathBuf,
+    component_name: String,
     instance_id: u8,
-    log_dir: impl AsRef<Path>,
-) -> Result<Option<PathBuf>> {
-    let log_dir = log_dir.as_ref();
-    Ok(fs::read_dir(log_dir)
-        .context(ReadDirSnafu { path: log_dir })?
-        .filter_map(|entry| {
-            let entry = entry.ok()?;
-            let metadata = entry.metadata().ok()?;
-
-            if !metadata.is_file() {
-                return None;
-            }
-
-            let filename = entry.file_name().to_str()?.to_string();
-            if filename.ends_with(".gz") {
-                return None;
-            }
-            let res = parse_filename(component_name, instance_id, &filename)?;
-            (res.0 <= Local::now().with_time(NaiveTime::MIN).unwrap())
-                .then_some((filename, res.0, res.1))
-        })
-        .reduce(|a, b| match a.1.cmp(&b.1) {
-            cmp::Ordering::Less => b,
-            cmp::Ordering::Equal => match a.2.cmp(&b.2) {
-                cmp::Ordering::Less => b,
-                cmp::Ordering::Equal => b,
-                cmp::Ordering::Greater => a,
-            },
-            cmp::Ordering::Greater => a,
-        })
-        .map(|(filename, _, _)| log_dir.join(filename)))
+    rotation: Rotation,
+    reserced_disk_size: u64,
+    compress: bool,
+    rotate_count: usize,
+    stop_logging_threshold: f64,
 }
 
-struct HandleOldFileEvent {
-    config: Config,
-    compress_file: Option<PathBuf>,
-}
+impl Config {
+    fn handle_old_files(&self) -> Result<()> {
+        // 删除多余的旧文件
+        let mut files = fs::read_dir(&self.log_dir)
+            .context(ReadDirSnafu {
+                path: &self.log_dir,
+            })?
+            .filter_map(|entry| {
+                let entry = entry.ok()?;
+                let metadata = entry.metadata().ok()?;
 
-fn handle_old_files(config: Config, compress_filename: Option<PathBuf>) -> Result<()> {
-    // 压缩上一个文件
-    if let Some(filename) = compress_filename {
-        if config.compress && config.rotate_count != 1 {
-            compress(filename).ok();
+                if !metadata.is_file() {
+                    return None;
+                }
+
+                let filename = entry.file_name().to_str()?.to_string();
+                let res = parse_filename(&self.component_name, self.instance_id, &filename)?;
+
+                Some((filename, res))
+            })
+            .collect::<Vec<(String, (DateTime<Local>, usize))>>();
+        files.sort_by(|(_, a), (_, b)| filename_cmp(a, b));
+
+        // 取出新建的文件，不进行处理
+        let mut compress_count = self.rotate_count.saturating_sub(1);
+        files.pop();
+
+        if files.is_empty() {
+            return Ok(());
         }
+
+        if self.rotate_count == 0 {
+            compress_count = files.len();
+        }
+
+        files.reverse();
+        let (compress_files, delete_files) = files.split_at(compress_count.min(files.len()));
+
+        if self.compress {
+            compress_files
+                .into_par_iter()
+                .filter(|(filename, (_, _))| !filename.ends_with(".gz"))
+                .for_each(|(filename, (_, _))| {
+                    compress(self.log_dir.join(filename)).ok();
+                });
+        }
+
+        if self.rotate_count == 0 {
+            return Ok(());
+        }
+
+        delete_files.into_par_iter().for_each(|(filename, (_, _))| {
+            fs::remove_file(self.log_dir.join(filename)).ok();
+        });
+
+        Ok(())
     }
-
-    if config.rotate_count == 0 {
-        return Ok(());
-    }
-
-    // 删除多余的旧文件
-    let mut files = fs::read_dir(&config.log_dir)
-        .context(ReadDirSnafu {
-            path: &config.log_dir,
-        })?
-        .filter_map(|entry| {
-            let entry = entry.ok()?;
-            let metadata = entry.metadata().ok()?;
-
-            if !metadata.is_file() {
-                return None;
-            }
-
-            let filename = entry.file_name().to_str()?.to_string();
-            let res = parse_filename(&config.component_name, config.instance_id, &filename)?;
-
-            Some((config.log_dir.join(filename), res))
-        })
-        .collect::<Vec<(PathBuf, (DateTime<Local>, usize))>>();
-    files.sort_by(|(_, a), (_, b)| filename_cmp(a, b));
-    if files.is_empty() {
-        return Ok(());
-    }
-    let delete_count = files.len().saturating_sub(config.rotate_count);
-    if delete_count == 0 {
-        return Ok(());
-    }
-    let delete_files = files
-        .into_iter()
-        .take(delete_count)
-        .map(|x| x.0)
-        .map(PathBuf::from)
-        .collect::<Vec<_>>();
-    for file in delete_files {
-        fs::remove_file(file).ok();
-    }
-
-    Ok(())
 }
 
 pub struct RollingWriter<'a>(RwLockReadGuard<'a, File>);

@@ -44,7 +44,7 @@ fn main() {
     if cfg!(debug_assertions) {
         layers.push(
             TaosLayer::<Qid, _, _>::new(std::io::stdout)
-                .with_ansi()
+                // .with_ansi()
                 .with_location()
                 .with_filter(LevelFilter::WARN)
                 .boxed(),
