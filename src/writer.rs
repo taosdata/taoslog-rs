@@ -29,7 +29,7 @@ use crate::{
 const DATE_FORMAT: &str = "%Y%m%d";
 const DATE_TIME_FORMAT: &str = "%Y%m%d %H%M%S";
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 struct Rotation {
     /// file size in bytes
     file_size: u64,
@@ -40,7 +40,7 @@ struct State {
     file_path: PathBuf,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 struct Config {
     log_dir: PathBuf,
     component_name: String,
@@ -113,6 +113,12 @@ impl<'a> RollingFileAppenderBuilder<'a> {
         // current max seq id
         let mut max_seq_id =
             today_max_seq_id(&self.component_name, self.instance_id, &self.log_dir)?;
+
+        let last_uncompress_file_path = if self.compress {
+            last_uncompress_file(&self.component_name, self.instance_id, &self.log_dir)?
+        } else {
+            None
+        };
 
         // init log file
         let now = Local::now();
@@ -192,7 +198,7 @@ impl<'a> RollingFileAppenderBuilder<'a> {
         event_tx
             .send(HandleOldFileEvent {
                 config: config.clone(),
-                compress_file: None,
+                compress_file: last_uncompress_file_path,
             })
             .ok();
 
@@ -254,7 +260,6 @@ impl RollingFileAppender {
                 path: &state.file_path,
             })?
             .len();
-        // dbg!(cur_size);
         if cur_size >= self.config.rotation.file_size {
             // 创建新文件
             state.max_seq_id += 1;
@@ -279,7 +284,7 @@ impl RollingFileAppender {
                     compress_file: Some(state.file_path.clone()),
                 })
                 .ok();
-            state.file_path = self.config.log_dir.join(filename);
+            state.file_path = filename;
             return Ok(Some(file));
         }
 
@@ -358,7 +363,6 @@ impl RollingFileAppender {
         let file_path = self.config.log_dir.join(&filename);
         match create_file(&file_path)? {
             Some(file) => {
-                // 处理旧文件
                 self.event_tx
                     .send(HandleOldFileEvent {
                         config: self.config.clone(),
@@ -399,6 +403,42 @@ fn today_max_seq_id(
         .unwrap_or_default())
 }
 
+fn last_uncompress_file(
+    component_name: &str,
+    instance_id: u8,
+    log_dir: impl AsRef<Path>,
+) -> Result<Option<PathBuf>> {
+    let log_dir = log_dir.as_ref();
+    Ok(fs::read_dir(log_dir)
+        .context(ReadDirSnafu { path: log_dir })?
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            let metadata = entry.metadata().ok()?;
+
+            if !metadata.is_file() {
+                return None;
+            }
+
+            let filename = entry.file_name().to_str()?.to_string();
+            if filename.ends_with(".gz") {
+                return None;
+            }
+            let res = parse_filename(component_name, instance_id, &filename)?;
+            (res.0 <= Local::now().with_time(NaiveTime::MIN).unwrap())
+                .then_some((filename, res.0, res.1))
+        })
+        .reduce(|a, b| match a.1.cmp(&b.1) {
+            cmp::Ordering::Less => b,
+            cmp::Ordering::Equal => match a.2.cmp(&b.2) {
+                cmp::Ordering::Less => b,
+                cmp::Ordering::Equal => b,
+                cmp::Ordering::Greater => a,
+            },
+            cmp::Ordering::Greater => a,
+        })
+        .map(|(filename, _, _)| log_dir.join(filename)))
+}
+
 struct HandleOldFileEvent {
     config: Config,
     compress_file: Option<PathBuf>,
@@ -436,7 +476,6 @@ fn handle_old_files(config: Config, compress_filename: Option<PathBuf>) -> Resul
         })
         .collect::<Vec<(PathBuf, (DateTime<Local>, usize))>>();
     files.sort_by(|(_, a), (_, b)| filename_cmp(a, b));
-    // dbg!(&files);
     if files.is_empty() {
         return Ok(());
     }
