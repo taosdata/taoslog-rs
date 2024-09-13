@@ -12,7 +12,7 @@ use std::{
 
 use chrono::{
     format::{DelayedFormat, StrftimeItems},
-    DateTime, Local, NaiveDateTime, NaiveTime, TimeZone,
+    DateTime, Local, NaiveDateTime, NaiveTime, TimeDelta, TimeZone,
 };
 use flate2::write::GzEncoder;
 use parking_lot::{RwLock, RwLockReadGuard};
@@ -46,6 +46,7 @@ pub struct RollingFileAppenderBuilder<'a> {
     component_name: String,
     instance_id: u8,
     rotation_count: usize,
+    log_keep_days: TimeDelta,
     rotation_size: &'a str,
     compress: bool,
     reserved_disk_size: &'a str,
@@ -56,6 +57,13 @@ impl<'a> RollingFileAppenderBuilder<'a> {
     pub fn rotation_count(self, rotation_count: u16) -> Self {
         Self {
             rotation_count: rotation_count as usize,
+            ..self
+        }
+    }
+
+    pub fn log_keep_days(self, log_keep_days: u16) -> Self {
+        Self {
+            log_keep_days: TimeDelta::days(log_keep_days as _),
             ..self
         }
     }
@@ -164,7 +172,8 @@ impl<'a> RollingFileAppenderBuilder<'a> {
             reserced_disk_size: parse_unit_size(self.reserved_disk_size)?,
             compress: self.compress,
             component_name: self.component_name,
-            rotate_count: self.rotation_count,
+            rotation_count: self.rotation_count,
+            log_keep_days: self.log_keep_days,
             stop_logging_threshold: self.stop_logging_threshold as f64 / 100f64,
         };
 
@@ -211,6 +220,7 @@ impl RollingFileAppender {
         RollingFileAppenderBuilder {
             log_dir: log_dir.as_ref().to_path_buf(),
             rotation_count: 30,
+            log_keep_days: TimeDelta::days(30),
             rotation_size: "1GB",
             compress: false,
             reserved_disk_size: "2GB",
@@ -379,7 +389,8 @@ struct Config {
     rotation: Rotation,
     reserced_disk_size: u64,
     compress: bool,
-    rotate_count: usize,
+    rotation_count: usize,
+    log_keep_days: TimeDelta,
     stop_logging_threshold: f64,
 }
 
@@ -407,34 +418,41 @@ impl Config {
         files.sort_by(|(_, a), (_, b)| filename_cmp(a, b));
 
         // 取出新建的文件，不进行处理
-        let mut compress_count = self.rotate_count.saturating_sub(1);
         files.pop();
+        files.reverse();
 
         if files.is_empty() {
             return Ok(());
         }
 
-        if self.rotate_count == 0 {
-            compress_count = files.len();
+        let mut split_index = files.len();
+
+        // delete by rotation_count
+        if self.rotation_count != 0 {
+            split_index = self.rotation_count.saturating_sub(1).min(split_index)
         }
 
-        files.reverse();
-        let (compress_files, delete_files) = files.split_at(compress_count.min(files.len()));
+        if !self.log_keep_days.is_zero() {
+            // delete by log_kep_days
+            let reserved_time =
+                Local::now().with_time(NaiveTime::MIN).unwrap() - self.log_keep_days;
+            let index = files.partition_point(|(_, (date, _))| date > &reserved_time);
+            split_index = split_index.min(index)
+        }
+
+        // split files for compress and delete
+        let (compress_files, delete_files) = files.split_at(split_index);
 
         if self.compress {
             compress_files
                 .into_par_iter()
-                .filter(|(filename, (_, _))| !filename.ends_with(".gz"))
-                .for_each(|(filename, (_, _))| {
+                .filter(|(filename, _)| !filename.ends_with(".gz"))
+                .for_each(|(filename, _)| {
                     compress(self.log_dir.join(filename)).ok();
                 });
         }
 
-        if self.rotate_count == 0 {
-            return Ok(());
-        }
-
-        delete_files.into_par_iter().for_each(|(filename, (_, _))| {
+        delete_files.into_par_iter().for_each(|(filename, _)| {
             fs::remove_file(self.log_dir.join(filename)).ok();
         });
 
