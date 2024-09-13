@@ -32,7 +32,7 @@ fn main() {
         .compress(true)
         .reserved_disk_size("1GB")
         .rotation_count(10)
-        .log_keep_days(10)
+        .keep_days(10)
         .rotation_size("1KB")
         .stop_logging_threadhold(50)
         .build()
