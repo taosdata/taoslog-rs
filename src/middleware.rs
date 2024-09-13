@@ -34,6 +34,8 @@ where
         // get qid from upstream header
         if let Some(qid) = request.headers().get_qid::<Q>() {
             span.set_qid(&qid);
+        } else {
+            span.set_qid(&Q::init_on_request(request));
         }
         span.in_scope(|| {
             tracing::info!("{client_ip} \"{method} {target} {schema}/{flavor}\" {user_agent}");

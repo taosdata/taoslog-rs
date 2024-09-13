@@ -49,6 +49,10 @@ pub enum Error {
 pub trait QidManager: Send + Sync + 'static + Clone + From<u64> {
     fn init() -> Self;
 
+    fn init_on_request(_request: &actix_web::dev::ServiceRequest) -> Self {
+        Self::init()
+    }
+
     fn get(&self) -> u64;
 
     fn display(&self) -> QidDisplay {
