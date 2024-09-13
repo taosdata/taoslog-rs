@@ -61,7 +61,7 @@ impl<'a> RollingFileAppenderBuilder<'a> {
         }
     }
 
-    pub fn log_keep_days(self, log_keep_days: u16) -> Self {
+    pub fn keep_days(self, log_keep_days: u16) -> Self {
         Self {
             log_keep_days: TimeDelta::days(log_keep_days as _),
             ..self
