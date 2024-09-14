@@ -136,10 +136,9 @@ impl<Q, S, M> TaosLayer<Q, S, M> {
             }
         }
 
-        if let Some(qid) = qid_field {
-            buf.push_str(&format!("QID:{}", qid.display()));
-            buf.push(' ');
-        }
+        let qid = qid_field.unwrap_or_else(Q::init);
+        buf.push_str(&format!("QID:{}", qid.display()));
+        buf.push(' ');
 
         if !kvs.is_empty() {
             let kvs = kvs.join(", ");
