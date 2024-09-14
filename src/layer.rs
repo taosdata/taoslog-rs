@@ -108,6 +108,8 @@ impl<Q, S, M> TaosLayer<Q, S, M> {
         Q: QidManager,
     {
         let mut kvs = Vec::new();
+        kvs.push(format!("mod:{}", event.metadata().target()));
+
         let mut message = None;
         event.record(&mut RecordVisit(&mut kvs, &mut message));
 
