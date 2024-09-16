@@ -240,7 +240,7 @@ impl RollingFileAppender {
         let mut state = self.state.write();
 
         // rotate by time
-        if let Some(file) = self.check_today_file_exists()? {
+        if let Some(file) = self.check_today_file_exists(&mut state)? {
             return Ok(Some(file));
         }
 
@@ -322,7 +322,24 @@ impl RollingFileAppender {
         Ok(None)
     }
 
-    fn check_today_file_exists(&self) -> Result<Option<File>> {
+    fn check_today_file_exists(&self, state: &mut State) -> Result<Option<File>> {
+        // check curent file name first
+        let today = time_format(Local::now());
+        let filename = state
+            .file_path
+            .file_name()
+            .and_then(|f| f.to_str())
+            .expect("file name not found in state file path");
+        let (date, _) = parse_filename(
+            &self.config.component_name,
+            self.config.instance_id,
+            filename,
+        )
+        .expect("filename should include date and index");
+        if date == Local::now().with_time(NaiveTime::MIN).unwrap() {
+            return Ok(None);
+        }
+
         // today max seq id
         let max_seq_id = today_max_seq_id(
             &self.config.component_name,
@@ -331,29 +348,22 @@ impl RollingFileAppender {
         )?;
 
         // init log file
-        let today = time_format(Local::now());
-        let (file_path, file) = {
-            if max_seq_id != 0 {
-                return Ok(None);
-            }
-            let filename = format!(
-                "{}_{}_{}.log",
-                &self.config.component_name, self.config.instance_id, today
-            );
-            let file_path = self.config.log_dir.join(&filename);
-            match create_file(&file_path)? {
-                Some(file) => (file_path, file),
-                None => return Ok(None),
-            }
-        };
-
-        {
-            let mut state = self.state.write();
-            state.file_path = file_path;
-            state.max_seq_id = max_seq_id;
+        if max_seq_id != 0 {
+            return Ok(None);
         }
-
-        Ok(Some(file))
+        let filename = format!(
+            "{}_{}_{}.log",
+            &self.config.component_name, self.config.instance_id, today
+        );
+        let file_path = self.config.log_dir.join(&filename);
+        match create_file(&file_path)? {
+            Some(file) => {
+                state.file_path = file_path;
+                state.max_seq_id = max_seq_id;
+                Ok(Some(file))
+            }
+            None => Ok(None),
+        }
     }
 }
 
