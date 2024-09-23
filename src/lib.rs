@@ -64,7 +64,7 @@ pub struct QidDisplay(u64);
 
 impl std::fmt::Display for QidDisplay {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:#018x}", self.0)
+        write!(f, "{:#x}", self.0)
     }
 }
 
@@ -73,7 +73,7 @@ pub(crate) mod fake {
     use crate::QidManager;
 
     #[derive(Clone)]
-    pub(crate) struct Qid(u64);
+    pub struct Qid(pub u64);
 
     impl QidManager for Qid {
         fn init() -> Self {
@@ -89,5 +89,19 @@ pub(crate) mod fake {
         fn from(value: u64) -> Self {
             Self(value)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{fake, QidManager};
+
+    #[test]
+    fn display_test() {
+        assert_eq!(fake::Qid(1).display().to_string(), "0x1");
+        assert_eq!(
+            fake::Qid::init().display().to_string(),
+            "0x7fffffffffffffff"
+        );
     }
 }

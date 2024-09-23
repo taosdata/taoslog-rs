@@ -226,10 +226,9 @@ mod tests {
 
         {
             use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-            tracing_subscriber::registry()
+            let _guard = tracing_subscriber::registry()
                 .with(tracing_subscriber::fmt::layer())
-                .try_init()
-                .unwrap();
+                .set_default();
 
             tracing::info_span!("outer", "k" = "kkk").in_scope(|| {
                 Span.set_qid(&qid);
@@ -239,6 +238,11 @@ mod tests {
         }
 
         {
+            use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+            let _guard = tracing_subscriber::registry()
+                .with(tracing_subscriber::fmt::layer())
+                .set_default();
+
             let mut span = info_span!("example");
             span.set_qid(&qid);
             let qid: Qid = span.get_qid().unwrap();

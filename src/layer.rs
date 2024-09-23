@@ -335,10 +335,9 @@ mod tests {
     #[test]
     fn layer_test() {
         use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-        tracing_subscriber::registry()
+        let _guard = tracing_subscriber::registry()
             .with(TaosLayer::<Qid, _, _>::new(Mutex::new(std::io::empty())))
-            .try_init()
-            .unwrap();
+            .set_default();
 
         tracing::info_span!("outer", "k" = "kkk").in_scope(|| {
             // test qid init
