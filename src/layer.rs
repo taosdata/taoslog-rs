@@ -99,7 +99,6 @@ impl<Q, S, M> TaosLayer<Q, S, M> {
             level_str
         };
         buf.push_str(&level_str);
-        buf.push(' ');
     }
 
     fn fmt_fields_and_qid(&self, buf: &mut String, event: &Event, scope: Option<Scope<S>>)
@@ -138,8 +137,10 @@ impl<Q, S, M> TaosLayer<Q, S, M> {
             }
         }
 
-        let qid = qid_field.unwrap_or_else(Q::init);
-        buf.push_str(&format!("QID:{}", qid.display()));
+        if let Some(qid) = qid_field {
+            buf.push(' ');
+            buf.push_str(&format!("QID:{}", qid.display()));
+        }
 
         if !kvs.is_empty() {
             buf.push(' ');
