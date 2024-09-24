@@ -73,6 +73,7 @@ fn main() {
             tracing::info_span!("inner").in_scope(|| {
                 tracing::debug!("inner info log example");
                 tracing::error!(c = "ccc", d = "ddd", process = rand_id, "inner example");
+                tracing::info!(e = "eee");
             });
         });
 

@@ -140,9 +140,9 @@ impl<Q, S, M> TaosLayer<Q, S, M> {
 
         let qid = qid_field.unwrap_or_else(Q::init);
         buf.push_str(&format!("QID:{}", qid.display()));
-        buf.push(' ');
 
         if !kvs.is_empty() {
+            buf.push(' ');
             let kvs = kvs.join(", ");
             #[cfg(feature = "ansi")]
             let kvs = if self.with_ansi {
@@ -151,15 +151,15 @@ impl<Q, S, M> TaosLayer<Q, S, M> {
                 kvs
             };
             buf.push_str(&kvs);
-            buf.push(' ');
         }
 
         if let Some(message) = message {
+            buf.push_str(", ");
             buf.push_str(&message);
         }
 
         if print_stacktrace && !spans.is_empty() {
-            buf.push(' ');
+            buf.push_str(", ");
             let s = format!("stack:{}", spans.join("->"));
             #[cfg(feature = "ansi")]
             let s = if self.with_ansi {
