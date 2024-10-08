@@ -19,7 +19,7 @@ thread-id = "4.2.2"
 regex = "1.10.6"
 sysinfo = { version = "0.31.3", default-features = false, features = ["disk"] }
 flume = "0.11.0"
-arrow-schema = "52.2.0"
+arrow-schema = "*"
 http = "*"
 
 [dev-dependencies]
