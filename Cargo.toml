@@ -19,10 +19,10 @@ thread-id = "4.2.2"
 regex = "1"
 sysinfo = { version = "0.31.4", default-features = false, features = ["disk"] }
 flume = "0.11.0"
-arrow-schema = "52.2.0"
-http = "0.2"
+arrow-schema = "*"
+http = "*"
 nu-ansi-term = { version = "0.50.1", optional = true }
-rayon = "1.10.0"
+rayon = "1"
 
 [dev-dependencies]
 crossbeam = "0.8.4"
