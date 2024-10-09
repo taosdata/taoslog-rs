@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use std::{collections::HashMap, marker::PhantomData};
 
 use chrono::{DateTime, Local};
 use tracing::{
@@ -14,7 +14,7 @@ use tracing_subscriber::{
 use crate::{writer::RollingFileAppender, QidManager};
 
 #[derive(Clone)]
-struct RecordFields(Vec<String>, Option<String>);
+struct RecordFields(HashMap<String, String>, Option<String>);
 
 pub struct TaosLayer<Q, S = Registry, M = RollingFileAppender> {
     make_writer: M,
@@ -106,11 +106,20 @@ impl<Q, S, M> TaosLayer<Q, S, M> {
         S: for<'s> LookupSpan<'s>,
         Q: QidManager,
     {
-        let mut kvs = Vec::new();
-        kvs.push(format!("mod:{}", event.metadata().target()));
+        let mut kvs = HashMap::new();
+
+        let is_from_log = event.metadata().target() == "log";
 
         let mut message = None;
-        event.record(&mut RecordVisit(&mut kvs, &mut message));
+        event.record(&mut RecordVisit {
+            kvs: &mut kvs,
+            message: &mut message,
+            is_from_log,
+        });
+
+        if !is_from_log {
+            kvs.insert("mod".to_string(), event.metadata().target().to_string());
+        }
 
         let mut qid_field = None;
 
@@ -144,7 +153,12 @@ impl<Q, S, M> TaosLayer<Q, S, M> {
 
         if !kvs.is_empty() {
             buf.push(' ');
-            let kvs = kvs.join(", ");
+            let mut fields = Vec::new();
+            if let Some(target) = kvs.remove("mod") {
+                fields.push(format!("mod:{target}"));
+            }
+            fields.extend(kvs.into_iter().map(|(k, v)| format!("{k}:{v}")));
+            let kvs = fields.join(", ");
             #[cfg(feature = "ansi")]
             let kvs = if self.with_ansi {
                 nu_ansi_term::Color::DarkGray.paint(kvs).to_string()
@@ -215,11 +229,13 @@ where
         extensions.replace(qid);
 
         if extensions.get_mut::<RecordFields>().is_none() {
-            let mut fields = Vec::new();
+            let mut fields = HashMap::new();
             let mut message = None;
-            attrs
-                .values()
-                .record(&mut RecordVisit(&mut fields, &mut message));
+            attrs.values().record(&mut RecordVisit {
+                kvs: &mut fields,
+                message: &mut message,
+                is_from_log: false,
+            });
             extensions.replace(RecordFields(fields, message));
         }
     }
@@ -236,12 +252,20 @@ where
         let mut extensions = span.extensions_mut();
         match extensions.get_mut::<RecordFields>() {
             Some(RecordFields(fields, message)) => {
-                values.record(&mut RecordVisit(fields, message));
+                values.record(&mut RecordVisit {
+                    kvs: fields,
+                    message,
+                    is_from_log: false,
+                });
             }
             None => {
-                let mut fields = Vec::new();
+                let mut fields = HashMap::new();
                 let mut message = None;
-                values.record(&mut RecordVisit(&mut fields, &mut message));
+                values.record(&mut RecordVisit {
+                    kvs: &mut fields,
+                    message: &mut message,
+                    is_from_log: false,
+                });
                 extensions.replace(RecordFields(fields, message));
             }
         }
@@ -289,27 +313,42 @@ where
     }
 }
 
-pub struct RecordVisit<'a>(&'a mut Vec<String>, &'a mut Option<String>);
+pub struct RecordVisit<'a> {
+    kvs: &'a mut HashMap<String, String>,
+    message: &'a mut Option<String>,
+    is_from_log: bool,
+}
 
 impl<'a> Visit for RecordVisit<'a> {
     fn record_str(&mut self, field: &field::Field, value: &str) {
         if field.name() == "message" {
-            self.1.replace(value.to_string());
-        } else {
-            self.0.push(format!(
-                "{}:{}",
-                format_str(field.name()),
-                format_str(value)
-            ));
+            self.message.replace(value.to_string());
+            return;
+        }
+
+        if self.is_from_log && field.name() == "log.target" {
+            self.kvs.insert("mod".to_string(), format_str(value));
+            return;
+        }
+
+        if !self.is_from_log || !field.name().starts_with("log.") {
+            self.kvs.insert(format_str(field.name()), format_str(value));
         }
     }
 
     fn record_debug(&mut self, field: &field::Field, value: &dyn std::fmt::Debug) {
         if field.name() == "message" {
-            self.1.replace(format!("{value:?}"));
-        } else {
-            self.0
-                .push(format!("{}:{value:?}", format_str(field.name())));
+            self.message.replace(format!("{value:?}"));
+            return;
+        }
+
+        if self.is_from_log && field.name() == "log.target" {
+            self.kvs.insert("mod".to_string(), field.name().to_string());
+        }
+
+        if !self.is_from_log || !field.name().starts_with("log.") {
+            self.kvs
+                .insert(format_str(field.name()), format!("{value:?}"));
         }
     }
 }

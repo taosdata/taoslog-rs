@@ -26,8 +26,11 @@ rayon = "1"
 
 [dev-dependencies]
 crossbeam = "0.8.4"
+log = "0.4.22"
 rand = "0.8.5"
 tokio = { version = "*", features = ["full"] }
+tracing = { version = "*", features = ["log"] }
+tracing-log = "0.2.0"
 
 [features]
 ansi = ["dep:nu-ansi-term"]

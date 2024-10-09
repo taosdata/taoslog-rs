@@ -4,6 +4,7 @@ use crossbeam::sync::WaitGroup;
 use rand::Rng;
 use taoslog::{layer::TaosLayer, writer::RollingFileAppender, QidManager};
 use tracing::level_filters::LevelFilter;
+use tracing_log::LogTracer;
 use tracing_subscriber::Layer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -43,6 +44,8 @@ fn main() {
         .try_init()
         .unwrap();
 
+    LogTracer::init().unwrap();
+
     let wg = WaitGroup::new();
     for _ in 0..1 {
         let wg = wg.clone();
@@ -69,6 +72,7 @@ fn main() {
     loop {
         tracing::info_span!("outer", "k" = "kkk").in_scope(|| {
             tracing::info!(a = "aaa", b = "bbb", process = rand_id, "outer example");
+            log::info!("this is log info log");
 
             tracing::info_span!("inner").in_scope(|| {
                 tracing::debug!("inner info log example");
