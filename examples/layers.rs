@@ -2,6 +2,7 @@ use std::io::BufRead;
 
 use taoslog::{layer::TaosLayer, writer::RollingFileAppender, QidManager};
 use tracing::level_filters::LevelFilter;
+use tracing_log::LogTracer;
 use tracing_subscriber::{
     layer::{Layer, SubscriberExt},
     util::SubscriberInitExt,
@@ -37,7 +38,7 @@ fn main() {
         .unwrap();
     layers.push(
         TaosLayer::<Qid>::new(appender)
-            .with_filter(LevelFilter::WARN)
+            .with_filter(LevelFilter::INFO)
             .boxed(),
     );
 
@@ -46,18 +47,21 @@ fn main() {
             TaosLayer::<Qid, _, _>::new(std::io::stdout)
                 // .with_ansi()
                 .with_location()
-                .with_filter(LevelFilter::WARN)
+                .with_filter(LevelFilter::INFO)
                 .boxed(),
         );
     }
 
     tracing_subscriber::registry().with(layers).init();
 
+    LogTracer::init().unwrap();
+
     let stdin = std::io::stdin();
     let mut stdin_lock = stdin.lock();
     loop {
         tracing::info_span!("outer", "k" = "kkk").in_scope(|| {
             tracing::info!(a = "aaa", b = "bbb", "outer example");
+            log::info!("this is log info log");
 
             tracing::info_span!("inner").in_scope(|| {
                 tracing::trace!("trace example");
